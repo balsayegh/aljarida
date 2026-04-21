@@ -1,0 +1,20 @@
+{
+  "name": "aljarida-whatsapp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Al-Jarida daily newspaper delivery via WhatsApp",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "db:create": "wrangler d1 create aljarida-db",
+    "db:init": "wrangler d1 execute aljarida-db --file=schema.sql",
+    "db:init:local": "wrangler d1 execute aljarida-db --local --file=schema.sql",
+    "db:query": "wrangler d1 execute aljarida-db --command",
+    "db:query:local": "wrangler d1 execute aljarida-db --local --command"
+  },
+  "devDependencies": {
+    "wrangler": "^3.100.0"
+  }
+}

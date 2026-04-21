@@ -1,0 +1,23 @@
+# Local development secrets
+#
+# 1. Copy this file to `.dev.vars` (which is git-ignored)
+# 2. Fill in your actual credentials
+# 3. Run `npm run dev` — Wrangler will load these automatically
+#
+# Never commit `.dev.vars` to git!
+#
+# For production, use `wrangler secret put <NAME>` instead (see README)
+
+# From Meta Business Manager → WhatsApp → API Setup
+WHATSAPP_ACCESS_TOKEN=EAAxxxxxxxxxxx
+WHATSAPP_PHONE_NUMBER_ID=123456789012345
+WHATSAPP_BUSINESS_ACCOUNT_ID=987654321098765
+
+# A random string you choose — used to verify webhook ownership.
+# Must match exactly what you enter in Meta Business Manager when configuring
+# the webhook. Any random string works; make it long and unique.
+WHATSAPP_VERIFY_TOKEN=aljarida_replace_this_with_your_own_random_string
+
+# MyFatoorah credentials (for Piece 2 — payment integration)
+MYFATOORAH_API_KEY=
+MYFATOORAH_BASE_URL=https://apitest.myfatoorah.com
