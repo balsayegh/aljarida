@@ -1,13 +1,13 @@
 /**
  * Admin HTML page renderers.
  *
- * Each page shares a common shell (nav, styles) and has its own body content.
- * Pages are rendered server-side as plain HTML; client-side JS handles data loading.
+ * Dashboard changes vs previous version:
+ *   - Defaults to NEXT publishing day (Al-Jarida publishes tomorrow's edition evening before)
+ *   - Date picker lets admin change target date
+ *   - URL override: click "تعديل يدوي" to paste a custom URL
+ *   - "Reset to auto" button to revert
+ *   - URL validation (starts with https://)
  */
-
-// ----------------------------------------------------------------------------
-// Shared styles and shell
-// ----------------------------------------------------------------------------
 
 const SHARED_CSS = `
   * { box-sizing: border-box; }
@@ -18,7 +18,6 @@ const SHARED_CSS = `
   a { color: #0066cc; text-decoration: none; }
   a:hover { text-decoration: underline; }
 
-  /* Top navigation */
   .topnav {
     background: white; padding: 0 30px;
     border-bottom: 1px solid #e5e5e7;
@@ -41,19 +40,16 @@ const SHARED_CSS = `
   }
   .topnav-actions button:hover { color: #0066cc; }
 
-  /* Layout */
   .container { max-width: 1100px; margin: 0 auto; padding: 30px 20px; }
   h1 { margin: 0 0 8px; font-size: 24px; }
   h2 { margin: 0 0 16px; font-size: 18px; }
   .subtitle { color: #666; margin: 0 0 24px; font-size: 14px; }
 
-  /* Cards */
   .card {
     background: white; padding: 24px; border-radius: 12px; margin-bottom: 16px;
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   }
 
-  /* Stats grid */
   .stats-grid {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
     gap: 12px; margin-bottom: 20px;
@@ -66,13 +62,18 @@ const SHARED_CSS = `
   .stat-value { font-size: 28px; font-weight: 700; color: #1a1a1a; }
   .stat-sublabel { color: #999; font-size: 11px; margin-top: 4px; }
 
-  /* Form elements */
   label {
     display: block; font-size: 13px; color: #333;
     margin-bottom: 6px; font-weight: 500;
   }
-  input[type="text"], input[type="tel"], input[type="search"],
-  input[type="password"], input[type="number"], select, textarea {
+  .label-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 6px;
+  }
+  .label-row label { margin: 0; }
+  input[type="text"], input[type="tel"], input[type="search"], input[type="url"],
+  input[type="password"], input[type="number"], input[type="date"],
+  select, textarea {
     width: 100%; padding: 10px 14px; font-size: 14px;
     border: 1px solid #d1d1d6; border-radius: 8px; margin-bottom: 14px;
     background: white; font-family: inherit;
@@ -82,6 +83,7 @@ const SHARED_CSS = `
     box-shadow: 0 0 0 3px rgba(0,102,204,0.1);
   }
   input[dir="ltr"] { direction: ltr; text-align: left; }
+  input[type="url"] { direction: ltr; text-align: left; font-family: 'SF Mono', Monaco, monospace; font-size: 13px; }
 
   button.primary {
     background: #0066cc; color: white; border: none; padding: 11px 22px;
@@ -96,6 +98,12 @@ const SHARED_CSS = `
   }
   button.secondary:hover { border-color: #0066cc; color: #0066cc; }
 
+  button.link-btn {
+    background: none; border: none; color: #0066cc; cursor: pointer;
+    font-size: 13px; padding: 4px 8px; font-family: inherit;
+  }
+  button.link-btn:hover { text-decoration: underline; }
+
   button.danger {
     background: white; color: #c5221f; border: 1px solid #f5c1bf;
     padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer;
@@ -106,7 +114,6 @@ const SHARED_CSS = `
     padding: 6px 12px; font-size: 13px;
   }
 
-  /* Status badges */
   .badge {
     display: inline-block; padding: 3px 10px; border-radius: 12px;
     font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
@@ -118,27 +125,26 @@ const SHARED_CSS = `
   .badge-unsubscribed { background: #fce8e6; color: #c5221f; }
   .badge-paused { background: #f0f0f0; color: #555; }
   .badge-new { background: #e0f2fe; color: #0369a1; }
+  .badge-custom { background: #e0f2fe; color: #0369a1; }
+  .badge-auto { background: #f0f0f0; color: #555; }
 
   .badge-delivered { background: #e6f4ea; color: #137333; }
   .badge-read { background: #e0f2fe; color: #0369a1; }
   .badge-sent { background: #fff4e5; color: #b45309; }
   .badge-failed { background: #fce8e6; color: #c5221f; }
 
-  /* Status messages */
   .alert { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; }
   .alert-success { background: #e6f4ea; color: #137333; }
   .alert-error { background: #fce8e6; color: #c5221f; }
   .alert-warning { background: #fff8e1; color: #856400; }
   .alert-info { background: #e0f2fe; color: #0369a1; }
 
-  /* Table */
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 12px 14px; text-align: right; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
   th { background: #f9f9fb; color: #555; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
   tr:hover { background: #f9f9fb; }
   .phone { font-family: 'SF Mono', Monaco, monospace; direction: ltr; text-align: left; }
 
-  /* Filters row */
   .filters-row {
     display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
   }
@@ -147,7 +153,6 @@ const SHARED_CSS = `
   }
   .filters-row input[type="search"] { flex: 1; max-width: 320px; }
 
-  /* Progress */
   .progress-bar {
     width: 100%; height: 6px; background: #f0f0f0; border-radius: 3px;
     margin-top: 8px; overflow: hidden;
@@ -156,12 +161,18 @@ const SHARED_CSS = `
     height: 100%; background: #0066cc; width: 0; transition: width 0.3s;
   }
 
-  /* Code/URL display */
-  .code {
+  .code, .url-display {
     background: #f5f5f7; padding: 10px 14px; border-radius: 6px;
     font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
     direction: ltr; text-align: left; color: #444;
     word-break: break-all;
+  }
+  .url-display {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px;
+  }
+  .url-display .url-text {
+    flex: 1; font-size: 13px;
   }
 
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -171,6 +182,14 @@ const SHARED_CSS = `
   }
 
   .muted { color: #888; font-size: 13px; }
+
+  .url-check {
+    display: flex; align-items: center; gap: 8px; margin-top: 6px;
+    font-size: 12px;
+  }
+  .url-check.checking { color: #666; }
+  .url-check.ok { color: #137333; }
+  .url-check.fail { color: #c5221f; }
 
   @media (max-width: 700px) {
     .grid-2 { grid-template-columns: 1fr; }
@@ -247,13 +266,13 @@ export function renderLoginPage(errorMessage = null) {
 }
 
 // ----------------------------------------------------------------------------
-// Dashboard page
+// Dashboard — UPDATED with URL override
 // ----------------------------------------------------------------------------
 
 export function renderDashboardPage() {
   const body = `
 <h1>الرئيسية</h1>
-<p class="subtitle">نظرة عامة وإرسال عدد اليوم</p>
+<p class="subtitle">إرسال العدد القادم ونظرة عامة</p>
 
 <div class="stats-grid" id="statsGrid">
   <div class="stat-card"><div class="stat-label">المشتركون النشطون</div><div class="stat-value" id="stat-active">—</div></div>
@@ -264,17 +283,52 @@ export function renderDashboardPage() {
 </div>
 
 <div class="card">
-  <h2>إرسال عدد اليوم</h2>
-  <div class="muted" style="margin-bottom:16px">رابط PDF اليوم (يتم التحقق تلقائياً):</div>
-  <div class="code" id="pdfInfo">جارٍ تحميل الرابط...</div>
+  <h2>إرسال العدد القادم</h2>
+  <p class="muted" style="margin:0 0 16px">
+    تنشر الجريدة عدد اليوم التالي مساءً بعد الساعة 8. حدد التاريخ المستهدف ثم اضغط "إرسال".
+  </p>
 
-  <label>تاريخ العدد (بالعربية)</label>
-  <input type="text" id="date" placeholder="مثال: الخميس 23 إبريل 2026">
+  <div class="grid-2">
+    <div>
+      <label>تاريخ العدد المستهدف</label>
+      <input type="date" id="targetDate" dir="ltr">
+      <div class="muted" style="margin-top:-10px; font-size:12px">افتراضياً: يوم الإصدار التالي</div>
+    </div>
+    <div>
+      <label>عرض بالعربية (سيظهر في الرسالة)</label>
+      <input type="text" id="date" placeholder="مثال: الجمعة 24 إبريل 2026">
+    </div>
+  </div>
+
+  <!-- URL section with toggle between auto and manual -->
+  <div class="label-row">
+    <label>رابط PDF <span id="urlModeBadge" class="badge badge-auto" style="margin-right:6px">تلقائي</span></label>
+    <button type="button" class="link-btn" id="urlToggleBtn" onclick="toggleUrlMode()">تعديل يدوي</button>
+  </div>
+
+  <!-- Auto mode: just display -->
+  <div id="urlAutoView">
+    <div class="url-display">
+      <span class="url-text" id="pdfInfo">—</span>
+    </div>
+    <div class="url-check" id="urlCheck"></div>
+  </div>
+
+  <!-- Manual mode: input field -->
+  <div id="urlManualView" style="display:none">
+    <input type="url" id="customPdfUrl" placeholder="https://www.aljarida.com/uploads/pdf/...">
+    <div class="muted" style="margin-top:-10px; font-size:12px">
+      أدخل رابط PDF بالكامل. يجب أن يبدأ بـ https://
+      <button type="button" class="link-btn" onclick="resetToAuto()">العودة إلى التلقائي</button>
+    </div>
+  </div>
+
+  <div style="margin-top:16px"></div>
 
   <div class="grid-2">
     <div>
       <label>العنوان الأول</label>
-      <input type="text" id="headline1" placeholder="أبرز خبر اليوم">
+      <input type="text" id="headline1" placeholder="أبرز خبر العدد">
     </div>
     <div>
       <label>العنوان الثاني</label>
@@ -285,7 +339,9 @@ export function renderDashboardPage() {
   <label>العنوان الثالث</label>
   <input type="text" id="headline3" placeholder="خبر ثالث">
 
-  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:8px">إرسال لجميع المشتركين النشطين</button>
+  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:8px">
+    إرسال لجميع المشتركين النشطين
+  </button>
 
   <div class="alert" id="sendStatus" style="display:none; margin-top:16px"></div>
   <div class="progress-bar" id="progressBar" style="display:none">
@@ -299,24 +355,109 @@ export function renderDashboardPage() {
 </div>
 
 <script>
-function getTodayUrl() {
-  const d = new Date();
-  const k = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
-  const y = k.getFullYear();
-  const m = String(k.getMonth() + 1).padStart(2, '0');
-  const dd = String(k.getDate()).padStart(2, '0');
-  return 'https://www.aljarida.com/uploads/pdf/' + y + '/' + m + '/' + dd + '/aljarida-' + y + m + dd + '-1.pdf';
+// --- Date helpers -----------------------------------------------------------
+
+function getNextPublishingDate() {
+  const kuwait = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
+  const target = new Date(kuwait);
+  target.setDate(target.getDate() + 1);
+  if (target.getDay() === 6) target.setDate(target.getDate() + 1);
+  return target;
 }
 
-function getArabicDate() {
+function formatArabicDate(d) {
   const months = ['يناير','فبراير','مارس','إبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
   const days = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
-  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
   return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
 }
 
-document.getElementById('pdfInfo').textContent = getTodayUrl();
-document.getElementById('date').value = getArabicDate();
+function formatUrlDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return { y, m, dd, slug: y + m + dd, iso: y + '-' + m + '-' + dd };
+}
+
+function buildPdfUrl(d) {
+  const { y, m, dd, slug } = formatUrlDate(d);
+  return 'https://www.aljarida.com/uploads/pdf/' + y + '/' + m + '/' + dd + '/aljarida-' + slug + '-1.pdf';
+}
+
+// --- URL mode state ---------------------------------------------------------
+
+let urlMode = 'auto';  // 'auto' or 'manual'
+
+function toggleUrlMode() {
+  if (urlMode === 'auto') {
+    urlMode = 'manual';
+    document.getElementById('urlAutoView').style.display = 'none';
+    document.getElementById('urlManualView').style.display = 'block';
+    document.getElementById('urlToggleBtn').textContent = 'الرجوع للتلقائي';
+    document.getElementById('urlModeBadge').className = 'badge badge-custom';
+    document.getElementById('urlModeBadge').textContent = 'يدوي';
+    // Pre-fill with current auto-URL for convenience
+    const autoUrl = document.getElementById('pdfInfo').textContent;
+    if (autoUrl && autoUrl !== '—' && !document.getElementById('customPdfUrl').value) {
+      document.getElementById('customPdfUrl').value = autoUrl;
+    }
+    document.getElementById('customPdfUrl').focus();
+  } else {
+    resetToAuto();
+  }
+}
+
+function resetToAuto() {
+  urlMode = 'auto';
+  document.getElementById('urlAutoView').style.display = 'block';
+  document.getElementById('urlManualView').style.display = 'none';
+  document.getElementById('urlToggleBtn').textContent = 'تعديل يدوي';
+  document.getElementById('urlModeBadge').className = 'badge badge-auto';
+  document.getElementById('urlModeBadge').textContent = 'تلقائي';
+  // Keep the custom value in the input in case they toggle back
+  const url = document.getElementById('pdfInfo').textContent;
+  if (url && url !== '—') checkUrl(url);
+}
+
+// --- Update fields from date ------------------------------------------------
+
+function updateFieldsFromDate(date) {
+  const { iso } = formatUrlDate(date);
+  document.getElementById('targetDate').value = iso;
+  document.getElementById('date').value = formatArabicDate(date);
+  const url = buildPdfUrl(date);
+  document.getElementById('pdfInfo').textContent = url;
+  if (urlMode === 'auto') checkUrl(url);
+}
+
+const nextDate = getNextPublishingDate();
+updateFieldsFromDate(nextDate);
+
+document.getElementById('targetDate').addEventListener('change', function(e) {
+  const val = e.target.value;
+  if (!val) return;
+  const parts = val.split('-');
+  const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  updateFieldsFromDate(d);
+});
+
+// --- URL check --------------------------------------------------------------
+
+async function checkUrl(url) {
+  const el = document.getElementById('urlCheck');
+  el.className = 'url-check checking';
+  el.textContent = '🔄 جارٍ التحقق...';
+
+  try {
+    await fetch(url, { method: 'HEAD', mode: 'no-cors' });
+    el.className = 'url-check ok';
+    el.textContent = '✓ الرابط يبدو صالحاً (التحقق النهائي عند الإرسال)';
+  } catch (err) {
+    el.className = 'url-check fail';
+    el.textContent = '⚠ تعذّر التحقق من الرابط — قد لا يكون العدد منشوراً بعد';
+  }
+}
+
+// --- Stats loader -----------------------------------------------------------
 
 async function loadStats() {
   try {
@@ -341,7 +482,10 @@ async function loadStats() {
 loadStats();
 setInterval(loadStats, 30000);
 
+// --- Broadcast --------------------------------------------------------------
+
 async function sendBroadcast() {
+  const targetDateIso = document.getElementById('targetDate').value;
   const date = document.getElementById('date').value.trim();
   const h1 = document.getElementById('headline1').value.trim();
   const h2 = document.getElementById('headline2').value.trim();
@@ -352,13 +496,34 @@ async function sendBroadcast() {
     return;
   }
 
-  const isSaturday = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' })).getDay() === 6;
+  let customUrl = null;
+  if (urlMode === 'manual') {
+    customUrl = document.getElementById('customPdfUrl').value.trim();
+    if (!customUrl) {
+      showAlert('sendStatus', 'يُرجى إدخال رابط PDF أو الرجوع للوضع التلقائي', 'error');
+      return;
+    }
+    if (!customUrl.startsWith('https://') && !customUrl.startsWith('http://')) {
+      showAlert('sendStatus', 'يجب أن يبدأ الرابط بـ https:// أو http://', 'error');
+      return;
+    }
+    if (!customUrl.toLowerCase().includes('.pdf')) {
+      if (!confirm('الرابط لا يحتوي على ".pdf" — هل أنت متأكد أنه رابط ملف PDF؟')) return;
+    }
+  }
+
+  // Saturday check
+  const parts = targetDateIso.split('-');
+  const targetDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+  const isSaturday = targetDate.getDay() === 6;
+
   let override = false;
   if (isSaturday) {
-    if (!confirm('اليوم السبت — لا يصدر عدد عادةً. هل أنت متأكد من الإرسال؟')) return;
+    if (!confirm('اليوم المستهدف هو السبت — لا يصدر عدد عادةً. هل أنت متأكد؟')) return;
     override = true;
   } else {
-    if (!confirm('هل تريد إرسال عدد اليوم لجميع المشتركين النشطين؟')) return;
+    const urlInfo = customUrl ? '\\n\\nرابط مخصص: ' + customUrl : '';
+    if (!confirm('هل تريد إرسال عدد "' + date + '" لجميع المشتركين النشطين؟' + urlInfo)) return;
   }
 
   const btn = document.getElementById('sendBtn');
@@ -372,7 +537,13 @@ async function sendBroadcast() {
     const r = await fetch('/admin/api/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, headlines: [h1, h2, h3], override }),
+      body: JSON.stringify({
+        date,
+        headlines: [h1, h2, h3],
+        override,
+        targetDateOverride: targetDateIso,
+        customPdfUrl: customUrl,
+      }),
     });
     const d = await r.json();
     document.getElementById('progressFill').style.width = '100%';
@@ -383,7 +554,9 @@ async function sendBroadcast() {
         '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل</a>',
         'success');
     } else {
-      showAlert('sendStatus', d.error || 'فشل الإرسال', 'error');
+      let msg = d.error || 'فشل الإرسال';
+      if (d.pdfUrl) msg += '<br><span class="code" style="display:inline-block;margin-top:6px">' + escapeHtml(d.pdfUrl) + '</span>';
+      showAlert('sendStatus', msg, 'error');
     }
   } catch (err) {
     showAlert('sendStatus', 'خطأ: ' + err.message, 'error');
@@ -410,7 +583,7 @@ function escapeHtml(s) {
 }
 
 // ----------------------------------------------------------------------------
-// Subscribers page
+// Subscribers page (UNCHANGED)
 // ----------------------------------------------------------------------------
 
 export function renderSubscribersPage() {
@@ -629,7 +802,7 @@ loadSubscribers();
 }
 
 // ----------------------------------------------------------------------------
-// Broadcasts list page
+// Broadcasts list page (UNCHANGED)
 // ----------------------------------------------------------------------------
 
 export function renderBroadcastsPage() {
@@ -705,7 +878,7 @@ loadBroadcasts();
 }
 
 // ----------------------------------------------------------------------------
-// Broadcast detail page
+// Broadcast detail page (UNCHANGED)
 // ----------------------------------------------------------------------------
 
 export function renderBroadcastDetailPage(broadcastId) {
@@ -805,7 +978,6 @@ function escapeHtml(s) {
 }
 
 loadDetail();
-// Auto-refresh every 15 seconds to catch delivery status updates
 setInterval(loadDetail, 15000);
 </script>
   `;

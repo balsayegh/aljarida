@@ -1,6 +1,9 @@
 /**
- * Broadcast handler — sends the daily delivery template to all active subscribers
- * and records everything in the broadcasts + broadcast_recipients tables.
+ * Broadcast handler — sends the daily delivery template to all active subscribers.
+ *
+ * Date logic: Aljarida.com publishes tomorrow's edition the previous evening
+ * (typically after 8 PM Kuwait time). Admin panel defaults to next publishing day
+ * but admin can override both the date and the PDF URL for special cases.
  */
 
 import { sendDailyDeliveryTemplate } from './whatsapp.js';
@@ -8,26 +11,49 @@ import { jsonResponse } from './admin.js';
 
 export async function handleBroadcast(request, env, ctx) {
   try {
-    const { date, headlines, override } = await request.json();
+    const { date, headlines, override, customPdfUrl, targetDateOverride } = await request.json();
 
     if (!date || !headlines || headlines.length !== 3 ||
         !headlines[0] || !headlines[1] || !headlines[2]) {
       return jsonResponse({ error: 'Missing date or 3 headlines' }, 400);
     }
 
-    // Construct today's PDF URL from Kuwait date
-    const kuwaitNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
-    const year = kuwaitNow.getFullYear();
-    const month = String(kuwaitNow.getMonth() + 1).padStart(2, '0');
-    const day = String(kuwaitNow.getDate()).padStart(2, '0');
-    const dateSlug = `${year}${month}${day}`;
-    const pdfUrl = `${env.ALJARIDA_PDF_BASE_URL}/${year}/${month}/${day}/aljarida-${dateSlug}-1.pdf`;
+    // Determine the PDF URL:
+    //   1. If admin provided customPdfUrl → use it verbatim
+    //   2. Otherwise, build from targetDateOverride or next publishing day
+    let pdfUrl;
+    let targetDate;
+
+    if (customPdfUrl && customPdfUrl.trim()) {
+      pdfUrl = customPdfUrl.trim();
+
+      if (!pdfUrl.startsWith('https://') && !pdfUrl.startsWith('http://')) {
+        return jsonResponse({ error: 'Custom URL must start with https:// or http://' }, 400);
+      }
+
+      if (targetDateOverride) {
+        targetDate = new Date(targetDateOverride + 'T12:00:00+03:00');
+      } else {
+        targetDate = getNextPublishingDate();
+      }
+    } else {
+      if (targetDateOverride) {
+        targetDate = new Date(targetDateOverride + 'T12:00:00+03:00');
+      } else {
+        targetDate = getNextPublishingDate();
+      }
+
+      const year = targetDate.getFullYear();
+      const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const day = String(targetDate.getDate()).padStart(2, '0');
+      const dateSlug = `${year}${month}${day}`;
+      pdfUrl = `${env.ALJARIDA_PDF_BASE_URL}/${year}/${month}/${day}/aljarida-${dateSlug}-1.pdf`;
+    }
 
     // Saturday warning
-    const dayOfWeek = kuwaitNow.getDay();
-    if (dayOfWeek === 6 && !override) {
+    if (targetDate.getDay() === 6 && !override) {
       return jsonResponse({
-        error: 'Today is Saturday — no edition normally published',
+        error: 'The target edition date is Saturday — Al-Jarida typically does not publish on Saturdays',
         warning: 'saturday',
         pdfUrl,
       }, 400);
@@ -38,15 +64,20 @@ export async function handleBroadcast(request, env, ctx) {
       const headResp = await fetch(pdfUrl, { method: 'HEAD' });
       if (!headResp.ok) {
         return jsonResponse({
-          error: `PDF not found at ${pdfUrl}`,
+          error: `PDF not found at ${pdfUrl}. Status: ${headResp.status}. The edition may not be published yet, or the URL is incorrect.`,
           status: headResp.status,
+          pdfUrl,
         }, 400);
       }
+
+      const contentType = headResp.headers.get('content-type') || '';
+      if (!contentType.toLowerCase().includes('pdf')) {
+        console.warn(`Content-Type is ${contentType}, not PDF. Proceeding anyway.`);
+      }
     } catch (err) {
-      return jsonResponse({ error: `Could not reach PDF URL: ${err.message}` }, 400);
+      return jsonResponse({ error: `Could not reach PDF URL: ${err.message}`, pdfUrl }, 400);
     }
 
-    // Get all active subscribers
     const { results: subscribers } = await env.DB.prepare(
       `SELECT phone FROM subscribers WHERE state = 'active' ORDER BY phone`
     ).all();
@@ -55,7 +86,6 @@ export async function handleBroadcast(request, env, ctx) {
       return jsonResponse({ error: 'No active subscribers', count: 0 }, 400);
     }
 
-    // Create broadcast record
     const now = Date.now();
     const broadcastResult = await env.DB.prepare(
       `INSERT INTO broadcasts
@@ -65,7 +95,6 @@ export async function handleBroadcast(request, env, ctx) {
 
     const broadcastId = broadcastResult.meta.last_row_id;
 
-    // Send to all subscribers (sequential for pilot scale)
     let sentCount = 0;
     let failedCount = 0;
 
@@ -98,7 +127,6 @@ export async function handleBroadcast(request, env, ctx) {
       }
     }
 
-    // Finalize broadcast record
     await env.DB.prepare(
       `UPDATE broadcasts
        SET sent_count = ?, failed_count = ?, status = 'completed', finished_at = ?
@@ -117,4 +145,16 @@ export async function handleBroadcast(request, env, ctx) {
     console.error('Broadcast error:', err);
     return jsonResponse({ error: err.message }, 500);
   }
+}
+
+function getNextPublishingDate() {
+  const kuwait = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
+  const target = new Date(kuwait);
+  target.setDate(target.getDate() + 1);
+
+  if (target.getDay() === 6) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  return target;
 }
