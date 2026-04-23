@@ -1,13 +1,9 @@
 /**
  * WhatsApp Cloud API wrapper.
- * All outbound messaging goes through these functions.
  */
 
 const GRAPH_API_VERSION = 'v22.0';
 
-/**
- * Send a plain text message (inside 24-hour CSW only).
- */
 export async function sendTextMessage(env, to, text) {
   return sendMessage(env, {
     messaging_product: 'whatsapp',
@@ -17,9 +13,6 @@ export async function sendTextMessage(env, to, text) {
   });
 }
 
-/**
- * Send subscription offer with Yes/No buttons (inside CSW).
- */
 export async function sendOfferWithButtons(env, to, bodyText) {
   return sendMessage(env, {
     messaging_product: 'whatsapp',
@@ -38,20 +31,12 @@ export async function sendOfferWithButtons(env, to, bodyText) {
   });
 }
 
-/**
- * Send payment prompt. Placeholder for Piece 2 (payment integration).
- */
 export async function sendPaymentPrompt(env, to, text) {
   return sendTextMessage(env, to, text);
 }
 
 /**
- * Send the daily delivery template with PDF attachment.
- *
- * Uses the approved template: aljarida_daily_delivery_ar
- * - Header: DOCUMENT (PDF URL)
- * - Body: date + 3 headlines
- * - Footer: opt-out instruction
+ * Send daily delivery template — the approved aljarida_daily_delivery_ar.
  */
 export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, headlines) {
   return sendMessage(env, {
@@ -88,9 +73,6 @@ export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, hea
   });
 }
 
-/**
- * Send welcome-after-payment template (used by Piece 2 when payment webhook fires).
- */
 export async function sendWelcomePaidTemplate(env, to, renewalDate) {
   return sendMessage(env, {
     messaging_product: 'whatsapp',
@@ -102,18 +84,13 @@ export async function sendWelcomePaidTemplate(env, to, renewalDate) {
       components: [
         {
           type: 'body',
-          parameters: [
-            { type: 'text', text: renewalDate },
-          ],
+          parameters: [{ type: 'text', text: renewalDate }],
         },
       ],
     },
   });
 }
 
-/**
- * Low-level send function.
- */
 async function sendMessage(env, body) {
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
@@ -133,6 +110,5 @@ async function sendMessage(env, body) {
     throw new Error(`WhatsApp API ${response.status}: ${JSON.stringify(result.error)}`);
   }
 
-  console.log(`Message sent to ${body.to}, id: ${result.messages?.[0]?.id}`);
   return result;
 }

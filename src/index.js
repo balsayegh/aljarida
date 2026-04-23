@@ -1,15 +1,5 @@
 /**
- * Al-Jarida Digital WhatsApp Service — Main Worker Entry Point
- *
- * Routes HTTP requests based on method and path:
- *
- *   GET  /                → health check
- *   GET  /webhook         → Meta webhook verification (one-time during setup)
- *   POST /webhook         → inbound messages and status updates from Meta
- *   GET  /admin           → admin panel (HTML, password-protected)
- *   POST /admin/login     → admin login
- *   POST /admin/broadcast → send daily PDF to all active subscribers
- *   GET  /admin/stats     → subscriber count and recent activity
+ * AlJarida Digital WhatsApp Service — Worker entry point
  */
 
 import { handleInboundMessage, handleStatusUpdate } from './handlers.js';
@@ -19,7 +9,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Health check
     if (url.pathname === '/' && request.method === 'GET') {
       return new Response('AlJarida Digital WhatsApp Service is running', {
         status: 200,
@@ -27,17 +16,14 @@ export default {
       });
     }
 
-    // Webhook verification (GET)
     if (url.pathname === '/webhook' && request.method === 'GET') {
       return handleWebhookVerification(url, env);
     }
 
-    // Webhook events (POST)
     if (url.pathname === '/webhook' && request.method === 'POST') {
       return handleWebhookEvent(request, env, ctx);
     }
 
-    // Admin routes
     if (url.pathname.startsWith('/admin')) {
       return handleAdminRequest(request, env, ctx, url);
     }
@@ -52,18 +38,14 @@ function handleWebhookVerification(url, env) {
   const challenge = url.searchParams.get('hub.challenge');
 
   if (mode === 'subscribe' && token === env.WHATSAPP_VERIFY_TOKEN) {
-    console.log('Webhook verified successfully');
     return new Response(challenge, { status: 200 });
   }
-
-  console.error('Webhook verification failed');
   return new Response('Forbidden', { status: 403 });
 }
 
 async function handleWebhookEvent(request, env, ctx) {
   try {
     const payload = await request.json();
-
     if (payload.object !== 'whatsapp_business_account') {
       return new Response('OK', { status: 200 });
     }

@@ -1,0 +1,813 @@
+/**
+ * Admin HTML page renderers.
+ *
+ * Each page shares a common shell (nav, styles) and has its own body content.
+ * Pages are rendered server-side as plain HTML; client-side JS handles data loading.
+ */
+
+// ----------------------------------------------------------------------------
+// Shared styles and shell
+// ----------------------------------------------------------------------------
+
+const SHARED_CSS = `
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
+    background: #f5f5f7; margin: 0; padding: 0; color: #1a1a1a;
+  }
+  a { color: #0066cc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Top navigation */
+  .topnav {
+    background: white; padding: 0 30px;
+    border-bottom: 1px solid #e5e5e7;
+    display: flex; justify-content: space-between; align-items: center;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .topnav-brand { font-size: 18px; font-weight: 600; padding: 16px 0; }
+  .topnav-links { display: flex; gap: 4px; }
+  .topnav-links a {
+    padding: 16px 18px; color: #555; font-size: 14px;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -1px;
+  }
+  .topnav-links a:hover { color: #0066cc; text-decoration: none; }
+  .topnav-links a.active { color: #0066cc; border-bottom-color: #0066cc; font-weight: 500; }
+  .topnav-actions { display: flex; gap: 8px; align-items: center; }
+  .topnav-actions button {
+    background: none; border: none; color: #666; cursor: pointer; font-size: 14px;
+    padding: 6px 12px;
+  }
+  .topnav-actions button:hover { color: #0066cc; }
+
+  /* Layout */
+  .container { max-width: 1100px; margin: 0 auto; padding: 30px 20px; }
+  h1 { margin: 0 0 8px; font-size: 24px; }
+  h2 { margin: 0 0 16px; font-size: 18px; }
+  .subtitle { color: #666; margin: 0 0 24px; font-size: 14px; }
+
+  /* Cards */
+  .card {
+    background: white; padding: 24px; border-radius: 12px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; margin-bottom: 20px;
+  }
+  .stat-card {
+    background: white; padding: 18px; border-radius: 10px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  .stat-label { color: #666; font-size: 12px; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat-value { font-size: 28px; font-weight: 700; color: #1a1a1a; }
+  .stat-sublabel { color: #999; font-size: 11px; margin-top: 4px; }
+
+  /* Form elements */
+  label {
+    display: block; font-size: 13px; color: #333;
+    margin-bottom: 6px; font-weight: 500;
+  }
+  input[type="text"], input[type="tel"], input[type="search"],
+  input[type="password"], input[type="number"], select, textarea {
+    width: 100%; padding: 10px 14px; font-size: 14px;
+    border: 1px solid #d1d1d6; border-radius: 8px; margin-bottom: 14px;
+    background: white; font-family: inherit;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: #0066cc;
+    box-shadow: 0 0 0 3px rgba(0,102,204,0.1);
+  }
+  input[dir="ltr"] { direction: ltr; text-align: left; }
+
+  button.primary {
+    background: #0066cc; color: white; border: none; padding: 11px 22px;
+    font-size: 14px; border-radius: 8px; cursor: pointer; font-weight: 600;
+  }
+  button.primary:hover { background: #0052a3; }
+  button.primary:disabled { background: #999; cursor: not-allowed; }
+
+  button.secondary {
+    background: white; color: #333; border: 1px solid #d1d1d6;
+    padding: 9px 18px; font-size: 14px; border-radius: 8px; cursor: pointer;
+  }
+  button.secondary:hover { border-color: #0066cc; color: #0066cc; }
+
+  button.danger {
+    background: white; color: #c5221f; border: 1px solid #f5c1bf;
+    padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer;
+  }
+  button.danger:hover { background: #fce8e6; }
+
+  button.small {
+    padding: 6px 12px; font-size: 13px;
+  }
+
+  /* Status badges */
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .badge-active { background: #e6f4ea; color: #137333; }
+  .badge-offered { background: #fff4e5; color: #b45309; }
+  .badge-yes, .badge-awaiting_payment { background: #fff4e5; color: #b45309; }
+  .badge-no { background: #fce8e6; color: #c5221f; }
+  .badge-unsubscribed { background: #fce8e6; color: #c5221f; }
+  .badge-paused { background: #f0f0f0; color: #555; }
+  .badge-new { background: #e0f2fe; color: #0369a1; }
+
+  .badge-delivered { background: #e6f4ea; color: #137333; }
+  .badge-read { background: #e0f2fe; color: #0369a1; }
+  .badge-sent { background: #fff4e5; color: #b45309; }
+  .badge-failed { background: #fce8e6; color: #c5221f; }
+
+  /* Status messages */
+  .alert { padding: 12px 16px; border-radius: 8px; font-size: 14px; margin-bottom: 16px; }
+  .alert-success { background: #e6f4ea; color: #137333; }
+  .alert-error { background: #fce8e6; color: #c5221f; }
+  .alert-warning { background: #fff8e1; color: #856400; }
+  .alert-info { background: #e0f2fe; color: #0369a1; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 12px 14px; text-align: right; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+  th { background: #f9f9fb; color: #555; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
+  tr:hover { background: #f9f9fb; }
+  .phone { font-family: 'SF Mono', Monaco, monospace; direction: ltr; text-align: left; }
+
+  /* Filters row */
+  .filters-row {
+    display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+  }
+  .filters-row select, .filters-row input {
+    margin-bottom: 0; width: auto; min-width: 180px;
+  }
+  .filters-row input[type="search"] { flex: 1; max-width: 320px; }
+
+  /* Progress */
+  .progress-bar {
+    width: 100%; height: 6px; background: #f0f0f0; border-radius: 3px;
+    margin-top: 8px; overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%; background: #0066cc; width: 0; transition: width 0.3s;
+  }
+
+  /* Code/URL display */
+  .code {
+    background: #f5f5f7; padding: 10px 14px; border-radius: 6px;
+    font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
+    direction: ltr; text-align: left; color: #444;
+    word-break: break-all;
+  }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+  .empty-state {
+    text-align: center; padding: 40px 20px; color: #999;
+  }
+
+  .muted { color: #888; font-size: 13px; }
+
+  @media (max-width: 700px) {
+    .grid-2 { grid-template-columns: 1fr; }
+    .topnav { padding: 0 16px; flex-wrap: wrap; }
+    .topnav-links a { padding: 12px 10px; font-size: 13px; }
+    .container { padding: 20px 14px; }
+    th, td { padding: 10px 8px; font-size: 13px; }
+  }
+`;
+
+function pageShell(title, activePage, bodyHtml) {
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title} — جريدة الجريدة الرقمية</title>
+<style>${SHARED_CSS}</style>
+</head>
+<body>
+
+<nav class="topnav">
+  <div class="topnav-brand">جريدة الجريدة الرقمية</div>
+  <div class="topnav-links">
+    <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
+    <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}">المشتركون</a>
+    <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}">سجل الإرسال</a>
+  </div>
+  <div class="topnav-actions">
+    <form method="POST" action="/admin/logout" style="margin:0">
+      <button type="submit">تسجيل الخروج</button>
+    </form>
+  </div>
+</nav>
+
+<div class="container">
+${bodyHtml}
+</div>
+
+</body>
+</html>`;
+}
+
+// ----------------------------------------------------------------------------
+// Login page
+// ----------------------------------------------------------------------------
+
+export function renderLoginPage(errorMessage = null) {
+  return `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تسجيل الدخول — جريدة الجريدة الرقمية</title>
+<style>${SHARED_CSS}
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+  .login-card { background: white; padding: 40px; border-radius: 12px; max-width: 400px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+  .login-card h1 { margin: 0 0 8px; font-size: 22px; }
+  .login-card .subtitle { margin: 0 0 28px; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1>جريدة الجريدة الرقمية</h1>
+  <p class="subtitle">لوحة التحكم — تسجيل الدخول</p>
+  ${errorMessage ? `<div class="alert alert-error">${errorMessage}</div>` : ''}
+  <form method="POST" action="/admin/login">
+    <input type="password" name="password" placeholder="كلمة المرور" required autofocus dir="ltr">
+    <button type="submit" class="primary" style="width:100%">دخول</button>
+  </form>
+</div>
+</body>
+</html>`;
+}
+
+// ----------------------------------------------------------------------------
+// Dashboard page
+// ----------------------------------------------------------------------------
+
+export function renderDashboardPage() {
+  const body = `
+<h1>الرئيسية</h1>
+<p class="subtitle">نظرة عامة وإرسال عدد اليوم</p>
+
+<div class="stats-grid" id="statsGrid">
+  <div class="stat-card"><div class="stat-label">المشتركون النشطون</div><div class="stat-value" id="stat-active">—</div></div>
+  <div class="stat-card"><div class="stat-label">قيد الاشتراك</div><div class="stat-value" id="stat-inflight">—</div></div>
+  <div class="stat-card"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
+  <div class="stat-card"><div class="stat-label">ملغون</div><div class="stat-value" id="stat-unsub">—</div></div>
+  <div class="stat-card"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
+</div>
+
+<div class="card">
+  <h2>إرسال عدد اليوم</h2>
+  <div class="muted" style="margin-bottom:16px">رابط PDF اليوم (يتم التحقق تلقائياً):</div>
+  <div class="code" id="pdfInfo">جارٍ تحميل الرابط...</div>
+
+  <label>تاريخ العدد (بالعربية)</label>
+  <input type="text" id="date" placeholder="مثال: الخميس 23 إبريل 2026">
+
+  <div class="grid-2">
+    <div>
+      <label>العنوان الأول</label>
+      <input type="text" id="headline1" placeholder="أبرز خبر اليوم">
+    </div>
+    <div>
+      <label>العنوان الثاني</label>
+      <input type="text" id="headline2" placeholder="خبر ثانٍ">
+    </div>
+  </div>
+
+  <label>العنوان الثالث</label>
+  <input type="text" id="headline3" placeholder="خبر ثالث">
+
+  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:8px">إرسال لجميع المشتركين النشطين</button>
+
+  <div class="alert" id="sendStatus" style="display:none; margin-top:16px"></div>
+  <div class="progress-bar" id="progressBar" style="display:none">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+</div>
+
+<div class="card" id="lastBroadcastCard" style="display:none">
+  <h2>آخر إرسال</h2>
+  <div id="lastBroadcastContent"></div>
+</div>
+
+<script>
+function getTodayUrl() {
+  const d = new Date();
+  const k = new Date(d.toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
+  const y = k.getFullYear();
+  const m = String(k.getMonth() + 1).padStart(2, '0');
+  const dd = String(k.getDate()).padStart(2, '0');
+  return 'https://www.aljarida.com/uploads/pdf/' + y + '/' + m + '/' + dd + '/aljarida-' + y + m + dd + '-1.pdf';
+}
+
+function getArabicDate() {
+  const months = ['يناير','فبراير','مارس','إبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+  const days = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+  const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
+  return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+document.getElementById('pdfInfo').textContent = getTodayUrl();
+document.getElementById('date').value = getArabicDate();
+
+async function loadStats() {
+  try {
+    const r = await fetch('/admin/api/stats');
+    const d = await r.json();
+    document.getElementById('stat-active').textContent = d.active;
+    document.getElementById('stat-inflight').textContent = d.inFlight;
+    document.getElementById('stat-new').textContent = d.newToday;
+    document.getElementById('stat-unsub').textContent = d.unsubscribed;
+    document.getElementById('stat-total').textContent = d.total;
+
+    if (d.lastBroadcast) {
+      document.getElementById('lastBroadcastCard').style.display = 'block';
+      const b = d.lastBroadcast;
+      document.getElementById('lastBroadcastContent').innerHTML =
+        '<p><strong>' + escapeHtml(b.date_string) + '</strong></p>' +
+        '<p class="muted">أُرسل إلى ' + b.target_count + ' — نجح: ' + b.sent_count + '، فشل: ' + b.failed_count + '</p>' +
+        '<p><a href="/admin/broadcasts/' + b.id + '">عرض التفاصيل →</a></p>';
+    }
+  } catch (err) { console.error(err); }
+}
+loadStats();
+setInterval(loadStats, 30000);
+
+async function sendBroadcast() {
+  const date = document.getElementById('date').value.trim();
+  const h1 = document.getElementById('headline1').value.trim();
+  const h2 = document.getElementById('headline2').value.trim();
+  const h3 = document.getElementById('headline3').value.trim();
+
+  if (!date || !h1 || !h2 || !h3) {
+    showAlert('sendStatus', 'يُرجى تعبئة التاريخ والعناوين الثلاثة', 'error');
+    return;
+  }
+
+  const isSaturday = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' })).getDay() === 6;
+  let override = false;
+  if (isSaturday) {
+    if (!confirm('اليوم السبت — لا يصدر عدد عادةً. هل أنت متأكد من الإرسال؟')) return;
+    override = true;
+  } else {
+    if (!confirm('هل تريد إرسال عدد اليوم لجميع المشتركين النشطين؟')) return;
+  }
+
+  const btn = document.getElementById('sendBtn');
+  btn.disabled = true;
+  btn.textContent = 'جارٍ الإرسال...';
+  showAlert('sendStatus', 'جارٍ الإرسال، قد يستغرق ذلك بضع دقائق...', 'warning');
+  document.getElementById('progressBar').style.display = 'block';
+  document.getElementById('progressFill').style.width = '30%';
+
+  try {
+    const r = await fetch('/admin/api/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, headlines: [h1, h2, h3], override }),
+    });
+    const d = await r.json();
+    document.getElementById('progressFill').style.width = '100%';
+
+    if (d.success) {
+      showAlert('sendStatus',
+        'تم الإرسال: ' + d.sent + ' بنجاح، ' + d.failed + ' فشل من أصل ' + d.total + ' مشترك. ' +
+        '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل</a>',
+        'success');
+    } else {
+      showAlert('sendStatus', d.error || 'فشل الإرسال', 'error');
+    }
+  } catch (err) {
+    showAlert('sendStatus', 'خطأ: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'إرسال لجميع المشتركين النشطين';
+    loadStats();
+  }
+}
+
+function showAlert(id, html, type) {
+  const el = document.getElementById(id);
+  el.innerHTML = html;
+  el.className = 'alert alert-' + type;
+  el.style.display = 'block';
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+  `;
+  return pageShell('الرئيسية', 'dashboard', body);
+}
+
+// ----------------------------------------------------------------------------
+// Subscribers page
+// ----------------------------------------------------------------------------
+
+export function renderSubscribersPage() {
+  const body = `
+<h1>المشتركون</h1>
+<p class="subtitle">إدارة قائمة المشتركين وحالاتهم</p>
+
+<div class="card">
+  <div class="filters-row">
+    <select id="filterState">
+      <option value="all">جميع الحالات</option>
+      <option value="active">نشط</option>
+      <option value="offered">عرض الاشتراك</option>
+      <option value="yes">وافق (لم يدفع)</option>
+      <option value="awaiting_payment">بانتظار الدفع</option>
+      <option value="paused">معلّق</option>
+      <option value="no">رفض</option>
+      <option value="unsubscribed">ألغى الاشتراك</option>
+      <option value="new">جديد</option>
+    </select>
+    <input type="search" id="searchInput" placeholder="بحث عن رقم أو اسم...">
+    <button class="secondary small" onclick="loadSubscribers()">تحديث</button>
+  </div>
+
+  <div id="subscribersContainer">
+    <div class="empty-state">جارٍ التحميل...</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>إضافة مشترك يدوياً</h2>
+  <p class="muted" style="margin:0 0 16px">للمرحلة التجريبية — يُضاف المشترك كنشط مباشرةً دون الدفع.</p>
+
+  <div class="grid-2">
+    <div>
+      <label>رقم الهاتف (بدون +)</label>
+      <input type="tel" id="newPhone" placeholder="965XXXXXXXX" dir="ltr">
+    </div>
+    <div>
+      <label>الاسم (اختياري)</label>
+      <input type="text" id="newName" placeholder="أحمد السالم">
+    </div>
+  </div>
+
+  <label>ملاحظة داخلية (اختياري)</label>
+  <input type="text" id="newNote" placeholder="مثال: فريق التحرير">
+
+  <button class="primary" onclick="addSubscriber()">إضافة</button>
+
+  <div class="alert" id="addStatus" style="display:none; margin-top:16px"></div>
+</div>
+
+<script>
+async function loadSubscribers() {
+  const state = document.getElementById('filterState').value;
+  const search = document.getElementById('searchInput').value.trim();
+
+  const params = new URLSearchParams();
+  if (state !== 'all') params.set('state', state);
+  if (search) params.set('search', search);
+
+  const container = document.getElementById('subscribersContainer');
+  container.innerHTML = '<div class="empty-state">جارٍ التحميل...</div>';
+
+  try {
+    const r = await fetch('/admin/api/subscribers?' + params);
+    const d = await r.json();
+
+    if (!d.subscribers || d.subscribers.length === 0) {
+      container.innerHTML = '<div class="empty-state">لا يوجد مشتركون لعرضهم</div>';
+      return;
+    }
+
+    container.innerHTML = renderTable(d.subscribers, d.total);
+  } catch (err) {
+    container.innerHTML = '<div class="alert alert-error">خطأ في التحميل: ' + err.message + '</div>';
+  }
+}
+
+function renderTable(subs, total) {
+  const rows = subs.map(function(s) {
+    return '<tr>' +
+      '<td class="phone">' + escapeHtml(s.phone) + '</td>' +
+      '<td>' + (escapeHtml(s.profile_name) || '<span class="muted">—</span>') + '</td>' +
+      '<td>' + renderBadge(s.state) + '</td>' +
+      '<td>' + formatDate(s.first_contact_at) + '</td>' +
+      '<td>' + (s.last_delivery_at ? formatDate(s.last_delivery_at) : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + (escapeHtml(s.internal_note) || '<span class="muted">—</span>') + '</td>' +
+      '<td>' + renderActions(s) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  return '<p class="muted" style="margin:0 0 12px">عرض ' + subs.length + ' من أصل ' + total + ' مشترك</p>' +
+    '<div style="overflow-x:auto"><table>' +
+    '<thead><tr>' +
+      '<th>الهاتف</th><th>الاسم</th><th>الحالة</th>' +
+      '<th>أول تواصل</th><th>آخر إرسال</th><th>ملاحظة</th><th>إجراءات</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function renderBadge(state) {
+  const labels = {
+    active: 'نشط', offered: 'عرض', yes: 'وافق',
+    awaiting_payment: 'ينتظر الدفع', paused: 'معلّق', no: 'رفض',
+    unsubscribed: 'ألغى', new: 'جديد'
+  };
+  return '<span class="badge badge-' + state + '">' + (labels[state] || state) + '</span>';
+}
+
+function renderActions(s) {
+  const buttons = [];
+  if (s.state !== 'active') {
+    buttons.push('<button class="secondary small" onclick="setState(\\''+ s.phone +'\\', \\'active\\')">تفعيل</button>');
+  }
+  if (s.state === 'active') {
+    buttons.push('<button class="secondary small" onclick="setState(\\''+ s.phone +'\\', \\'paused\\')">تعليق</button>');
+  }
+  if (s.state !== 'unsubscribed') {
+    buttons.push('<button class="danger" onclick="setState(\\''+ s.phone +'\\', \\'unsubscribed\\')">إلغاء</button>');
+  }
+  buttons.push('<button class="danger" onclick="deleteSub(\\''+ s.phone +'\\')">حذف</button>');
+  return buttons.join(' ');
+}
+
+async function setState(phone, state) {
+  const labels = { active: 'تفعيل', paused: 'تعليق', unsubscribed: 'إلغاء' };
+  if (!confirm(labels[state] + ' هذا المشترك؟')) return;
+
+  try {
+    const r = await fetch('/admin/api/subscribers/' + phone, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state }),
+    });
+    const d = await r.json();
+    if (d.success) loadSubscribers();
+    else alert(d.error || 'فشل التحديث');
+  } catch (err) { alert(err.message); }
+}
+
+async function deleteSub(phone) {
+  if (!confirm('حذف هذا المشترك نهائياً من قاعدة البيانات؟')) return;
+  try {
+    const r = await fetch('/admin/api/subscribers/' + phone, { method: 'DELETE' });
+    const d = await r.json();
+    if (d.success) loadSubscribers();
+    else alert(d.error || 'فشل الحذف');
+  } catch (err) { alert(err.message); }
+}
+
+async function addSubscriber() {
+  const phone = document.getElementById('newPhone').value.trim();
+  const name = document.getElementById('newName').value.trim();
+  const note = document.getElementById('newNote').value.trim();
+
+  if (!phone || !/^\\d{10,15}$/.test(phone)) {
+    showAlert('addStatus', 'الرجاء إدخال رقم صحيح (10-15 رقم بدون +)', 'error');
+    return;
+  }
+
+  try {
+    const r = await fetch('/admin/api/subscribers/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, name, note }),
+    });
+    const d = await r.json();
+
+    if (d.success) {
+      showAlert('addStatus', 'تمت الإضافة بنجاح', 'success');
+      document.getElementById('newPhone').value = '';
+      document.getElementById('newName').value = '';
+      document.getElementById('newNote').value = '';
+      loadSubscribers();
+    } else {
+      showAlert('addStatus', d.error || 'فشل الإضافة', 'error');
+    }
+  } catch (err) { showAlert('addStatus', err.message, 'error'); }
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  const diffMs = Date.now() - ts;
+  const diffH = diffMs / 3600000;
+  if (diffH < 1) return 'منذ دقائق';
+  if (diffH < 24) return 'منذ ' + Math.floor(diffH) + ' ساعة';
+  const days = Math.floor(diffH / 24);
+  if (days < 30) return 'منذ ' + days + ' يوم';
+  return d.toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function showAlert(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'alert alert-' + type;
+  el.style.display = 'block';
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+document.getElementById('filterState').addEventListener('change', loadSubscribers);
+
+let searchTimeout;
+document.getElementById('searchInput').addEventListener('input', function() {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(loadSubscribers, 300);
+});
+
+loadSubscribers();
+</script>
+  `;
+  return pageShell('المشتركون', 'subscribers', body);
+}
+
+// ----------------------------------------------------------------------------
+// Broadcasts list page
+// ----------------------------------------------------------------------------
+
+export function renderBroadcastsPage() {
+  const body = `
+<h1>سجل الإرسال</h1>
+<p class="subtitle">جميع عمليات إرسال العدد اليومي</p>
+
+<div class="card">
+  <div id="broadcastsContainer">
+    <div class="empty-state">جارٍ التحميل...</div>
+  </div>
+</div>
+
+<script>
+async function loadBroadcasts() {
+  try {
+    const r = await fetch('/admin/api/broadcasts');
+    const d = await r.json();
+
+    if (!d.broadcasts || d.broadcasts.length === 0) {
+      document.getElementById('broadcastsContainer').innerHTML =
+        '<div class="empty-state">لم يتم إرسال أي عدد حتى الآن</div>';
+      return;
+    }
+
+    const rows = d.broadcasts.map(function(b) {
+      const deliveryRate = b.target_count > 0 ?
+        Math.round((b.delivered_count / b.target_count) * 100) : 0;
+      const readRate = b.target_count > 0 ?
+        Math.round((b.read_count / b.target_count) * 100) : 0;
+
+      return '<tr onclick="location.href=\\'/admin/broadcasts/' + b.id + '\\'" style="cursor:pointer">' +
+        '<td><strong>' + escapeHtml(b.date_string) + '</strong></td>' +
+        '<td>' + b.target_count + '</td>' +
+        '<td>' + b.sent_count + ' ✓</td>' +
+        '<td>' + b.delivered_count + ' (' + deliveryRate + '%)</td>' +
+        '<td>' + b.read_count + ' (' + readRate + '%)</td>' +
+        '<td>' + (b.failed_count > 0 ? '<span style="color:#c5221f">' + b.failed_count + '</span>' : '—') + '</td>' +
+        '<td>' + formatDate(b.started_at) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    document.getElementById('broadcastsContainer').innerHTML =
+      '<div style="overflow-x:auto"><table>' +
+      '<thead><tr>' +
+        '<th>التاريخ</th><th>الهدف</th><th>أُرسل</th>' +
+        '<th>وصل</th><th>مقروء</th><th>فشل</th><th>الوقت</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  } catch (err) {
+    document.getElementById('broadcastsContainer').innerHTML =
+      '<div class="alert alert-error">خطأ: ' + err.message + '</div>';
+  }
+}
+
+function formatDate(ts) {
+  if (!ts) return '—';
+  const diffH = (Date.now() - ts) / 3600000;
+  if (diffH < 1) return 'منذ دقائق';
+  if (diffH < 24) return 'منذ ' + Math.floor(diffH) + ' ساعة';
+  const days = Math.floor(diffH / 24);
+  if (days < 30) return 'منذ ' + days + ' يوم';
+  return new Date(ts).toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadBroadcasts();
+</script>
+  `;
+  return pageShell('سجل الإرسال', 'broadcasts', body);
+}
+
+// ----------------------------------------------------------------------------
+// Broadcast detail page
+// ----------------------------------------------------------------------------
+
+export function renderBroadcastDetailPage(broadcastId) {
+  const body = `
+<div style="margin-bottom:16px"><a href="/admin/broadcasts">← سجل الإرسال</a></div>
+
+<div id="detailContainer">
+  <div class="empty-state">جارٍ التحميل...</div>
+</div>
+
+<script>
+const broadcastId = ${JSON.stringify(broadcastId)};
+
+async function loadDetail() {
+  try {
+    const r = await fetch('/admin/api/broadcasts/' + broadcastId);
+    const d = await r.json();
+
+    if (d.error) {
+      document.getElementById('detailContainer').innerHTML =
+        '<div class="alert alert-error">' + d.error + '</div>';
+      return;
+    }
+
+    const b = d.broadcast;
+    const stats = d.stats;
+    const deliveryRate = stats.total > 0 ? Math.round((stats.delivered / stats.total) * 100) : 0;
+    const readRate = stats.total > 0 ? Math.round((stats.read / stats.total) * 100) : 0;
+
+    const rows = d.recipients.map(function(r) {
+      let deliveryBadge = '<span class="badge badge-sent">أُرسل</span>';
+      if (r.send_status === 'failed') {
+        deliveryBadge = '<span class="badge badge-failed">فشل الإرسال</span>';
+      } else if (r.delivery_status === 'read') {
+        deliveryBadge = '<span class="badge badge-read">مقروء</span>';
+      } else if (r.delivery_status === 'delivered') {
+        deliveryBadge = '<span class="badge badge-delivered">وصل</span>';
+      } else if (r.delivery_status === 'failed') {
+        deliveryBadge = '<span class="badge badge-failed">فشل التسليم</span>';
+      }
+
+      return '<tr>' +
+        '<td class="phone">' + escapeHtml(r.phone) + '</td>' +
+        '<td>' + deliveryBadge + '</td>' +
+        '<td>' + (r.delivered_at ? formatTime(r.delivered_at) : '—') + '</td>' +
+        '<td>' + (r.read_at ? formatTime(r.read_at) : '—') + '</td>' +
+        '<td class="muted">' + (escapeHtml(r.error_message) || '—') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    document.getElementById('detailContainer').innerHTML =
+      '<h1>عدد ' + escapeHtml(b.date_string) + '</h1>' +
+      '<p class="subtitle">التفاصيل الكاملة للإرسال</p>' +
+
+      '<div class="stats-grid">' +
+        '<div class="stat-card"><div class="stat-label">الهدف</div><div class="stat-value">' + stats.total + '</div></div>' +
+        '<div class="stat-card"><div class="stat-label">أُرسل</div><div class="stat-value">' + stats.sent + '</div></div>' +
+        '<div class="stat-card"><div class="stat-label">وصل</div><div class="stat-value">' + stats.delivered + '</div><div class="stat-sublabel">' + deliveryRate + '%</div></div>' +
+        '<div class="stat-card"><div class="stat-label">مقروء</div><div class="stat-value">' + stats.read + '</div><div class="stat-sublabel">' + readRate + '%</div></div>' +
+        '<div class="stat-card"><div class="stat-label">فشل</div><div class="stat-value">' + (stats.failed_send + stats.failed_delivery) + '</div></div>' +
+      '</div>' +
+
+      '<div class="card">' +
+        '<h2>تفاصيل العدد</h2>' +
+        '<p><strong>التاريخ:</strong> ' + escapeHtml(b.date_string) + '</p>' +
+        '<p><strong>ملف PDF:</strong></p>' +
+        '<div class="code">' + escapeHtml(b.pdf_url) + '</div>' +
+        '<p><strong>العناوين:</strong></p>' +
+        '<ul>' +
+          '<li>' + escapeHtml(b.headline_1) + '</li>' +
+          '<li>' + escapeHtml(b.headline_2) + '</li>' +
+          '<li>' + escapeHtml(b.headline_3) + '</li>' +
+        '</ul>' +
+      '</div>' +
+
+      '<div class="card">' +
+        '<h2>المستلمون (' + d.recipients.length + ')</h2>' +
+        '<p class="muted">ملاحظة: حالة "مقروء" تظهر فقط للمشتركين الذين فعّلوا إيصالات القراءة في إعدادات واتساب.</p>' +
+        '<div style="overflow-x:auto"><table>' +
+        '<thead><tr>' +
+          '<th>الهاتف</th><th>الحالة</th>' +
+          '<th>وصل في</th><th>قُرئ في</th><th>خطأ</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '</div>';
+  } catch (err) {
+    document.getElementById('detailContainer').innerHTML =
+      '<div class="alert alert-error">خطأ: ' + err.message + '</div>';
+  }
+}
+
+function formatTime(ts) {
+  return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadDetail();
+// Auto-refresh every 15 seconds to catch delivery status updates
+setInterval(loadDetail, 15000);
+</script>
+  `;
+  return pageShell('تفاصيل الإرسال', 'broadcasts', body);
+}

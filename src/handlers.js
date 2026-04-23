@@ -1,16 +1,5 @@
 /**
  * Message Handlers — business logic for incoming WhatsApp messages.
- *
- * State machine on the `subscribers` table:
- *
- *   (new number)      → state: 'new'
- *   send offer        → state: 'offered'
- *   tap 'Yes'         → state: 'yes'
- *   send payment link → state: 'awaiting_payment'
- *   payment confirmed → state: 'active' (Piece 2)
- *   reply STOP        → state: 'unsubscribed'
- *
- * For pilot (no payment), admins can manually set state to 'active' via admin panel.
  */
 
 import { sendTextMessage, sendOfferWithButtons, sendPaymentPrompt } from './whatsapp.js';
@@ -46,41 +35,57 @@ export async function handleInboundMessage(message, contacts, env) {
   switch (subscriber.state) {
     case 'new':
       return handleFirstContact(env, from, subscriber);
-
     case 'offered':
       return handleOfferResponse(env, from, subscriber, message);
-
     case 'yes':
     case 'awaiting_payment':
       return handleReturningPayer(env, from, subscriber, message);
-
     case 'active':
       return handleActiveSubscriber(env, from, subscriber, message);
-
     case 'no':
     case 'unsubscribed':
       return handleFirstContact(env, from, subscriber);
-
     default:
       console.warn(`Unknown state for ${from}: ${subscriber.state}`);
       return handleFirstContact(env, from, subscriber);
   }
 }
 
+/**
+ * Status updates from Meta: sent, delivered, read, failed.
+ * We update both `message_status` (raw log) and `broadcast_recipients`
+ * (per-broadcast tracking) when applicable.
+ */
 export async function handleStatusUpdate(status, env) {
-  console.log(`Status update: ${status.id} → ${status.status}`);
+  const waMessageId = status.id;
+  const statusType = status.status;
+  const timestamp = parseInt(status.timestamp, 10) * 1000;
+  const recipient = status.recipient_id;
+  const errorCode = status.errors?.[0]?.code || null;
+  const errorTitle = status.errors?.[0]?.title || null;
 
+  console.log(`Status update: ${waMessageId} → ${statusType}`);
+
+  // Log the raw status event
   await env.DB.prepare(
     `INSERT INTO message_status (wa_message_id, status, timestamp, recipient, error_code, error_title)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(
-    status.id,
-    status.status,
-    parseInt(status.timestamp, 10) * 1000,
-    status.recipient_id,
-    status.errors?.[0]?.code || null,
-    status.errors?.[0]?.title || null,
-  ).run();
+  ).bind(waMessageId, statusType, timestamp, recipient, errorCode, errorTitle).run();
+
+  // Update broadcast_recipients if this message belongs to a broadcast
+  const updateFields = { delivery_status: statusType };
+  if (statusType === 'delivered') updateFields.delivered_at = timestamp;
+  if (statusType === 'read') updateFields.read_at = timestamp;
+  if (statusType === 'failed') updateFields.error_message = errorTitle || `Error code ${errorCode}`;
+
+  // Build dynamic update
+  const setClauses = Object.keys(updateFields).map(k => `${k} = ?`).join(', ');
+  const values = Object.values(updateFields);
+  values.push(waMessageId);
+
+  await env.DB.prepare(
+    `UPDATE broadcast_recipients SET ${setClauses} WHERE wa_message_id = ?`
+  ).bind(...values).run();
 }
 
 // ----------------------------------------------------------------------------
@@ -88,7 +93,6 @@ export async function handleStatusUpdate(status, env) {
 // ----------------------------------------------------------------------------
 
 async function handleFirstContact(env, phone, subscriber) {
-  console.log(`Sending subscription offer to ${phone}`);
   await sendOfferWithButtons(env, phone, t.offer);
   await updateSubscriberState(env.DB, phone, 'offered');
 }
@@ -97,9 +101,8 @@ async function handleOfferResponse(env, phone, subscriber, message) {
   if (message.type === 'interactive') {
     const buttonReply = message.interactive?.button_reply;
     if (buttonReply) {
-      const buttonId = buttonReply.id;
-      if (buttonId === 'subscribe_yes') return handleYesResponse(env, phone, subscriber);
-      if (buttonId === 'subscribe_no') return handleNoResponse(env, phone, subscriber);
+      if (buttonReply.id === 'subscribe_yes') return handleYesResponse(env, phone, subscriber);
+      if (buttonReply.id === 'subscribe_no') return handleNoResponse(env, phone, subscriber);
     }
   }
 
@@ -114,8 +117,6 @@ async function handleOfferResponse(env, phone, subscriber, message) {
 }
 
 async function handleYesResponse(env, phone, subscriber) {
-  console.log(`Subscriber ${phone} said YES`);
-
   const now = Date.now();
 
   await env.DB.prepare(
@@ -132,7 +133,6 @@ async function handleYesResponse(env, phone, subscriber) {
 }
 
 async function handleNoResponse(env, phone, subscriber) {
-  console.log(`Subscriber ${phone} said NO`);
   await sendTextMessage(env, phone, t.noResponse);
   await updateSubscriberState(env.DB, phone, 'no');
 }
@@ -147,8 +147,6 @@ async function handleActiveSubscriber(env, phone, subscriber, message) {
 }
 
 async function handleOptOut(env, phone, subscriber) {
-  console.log(`Opt-out request from ${phone}`);
-
   const now = Date.now();
 
   await env.DB.prepare(
@@ -164,14 +162,11 @@ async function handleOptOut(env, phone, subscriber) {
 }
 
 // ----------------------------------------------------------------------------
-// Database helpers
+// DB helpers
 // ----------------------------------------------------------------------------
 
 async function getOrCreateSubscriber(db, phone, contacts) {
-  const existing = await db.prepare(
-    'SELECT * FROM subscribers WHERE phone = ?'
-  ).bind(phone).first();
-
+  const existing = await db.prepare('SELECT * FROM subscribers WHERE phone = ?').bind(phone).first();
   if (existing) return existing;
 
   const profileName = contacts?.[0]?.profile?.name || null;
@@ -182,16 +177,12 @@ async function getOrCreateSubscriber(db, phone, contacts) {
      VALUES (?, ?, ?, ?, ?)`
   ).bind(phone, 'new', 'standard', profileName, now).run();
 
-  return {
-    phone, state: 'new', tier: 'standard',
-    profile_name: profileName, first_contact_at: now,
-  };
+  return { phone, state: 'new', tier: 'standard', profile_name: profileName, first_contact_at: now };
 }
 
 async function updateSubscriberState(db, phone, newState) {
-  await db.prepare(
-    'UPDATE subscribers SET state = ?, updated_at = ? WHERE phone = ?'
-  ).bind(newState, Date.now(), phone).run();
+  await db.prepare('UPDATE subscribers SET state = ?, updated_at = ? WHERE phone = ?')
+    .bind(newState, Date.now(), phone).run();
 }
 
 async function logMessage(db, msg) {
@@ -199,10 +190,7 @@ async function logMessage(db, msg) {
     await db.prepare(
       `INSERT INTO messages (wa_message_id, phone, direction, message_type, content, created_at)
        VALUES (?, ?, ?, ?, ?, ?)`
-    ).bind(
-      msg.wa_message_id, msg.phone, msg.direction,
-      msg.message_type, msg.content, msg.created_at,
-    ).run();
+    ).bind(msg.wa_message_id, msg.phone, msg.direction, msg.message_type, msg.content, msg.created_at).run();
   } catch (err) {
     if (!err.message?.includes('UNIQUE constraint')) {
       console.error('Log message error:', err);
@@ -212,9 +200,8 @@ async function logMessage(db, msg) {
 
 async function updateCSWWindow(db, phone, timestamp) {
   const windowOpenUntil = timestamp + 24 * 60 * 60 * 1000;
-  await db.prepare(
-    `UPDATE subscribers SET csw_open_until = ? WHERE phone = ?`
-  ).bind(windowOpenUntil, phone).run();
+  await db.prepare('UPDATE subscribers SET csw_open_until = ? WHERE phone = ?')
+    .bind(windowOpenUntil, phone).run();
 }
 
 // ----------------------------------------------------------------------------
@@ -222,10 +209,7 @@ async function updateCSWWindow(db, phone, timestamp) {
 // ----------------------------------------------------------------------------
 
 function isOptOutKeyword(text) {
-  const keywords = [
-    'stop', 'unsubscribe', 'cancel',
-    'إيقاف', 'ايقاف', 'الغاء', 'إلغاء', 'توقف', 'وقف',
-  ];
+  const keywords = ['stop', 'unsubscribe', 'cancel', 'إيقاف', 'ايقاف', 'الغاء', 'إلغاء', 'توقف', 'وقف'];
   return keywords.some(k => text === k || text.startsWith(k + ' '));
 }
 

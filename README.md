@@ -2,174 +2,110 @@
 
 Daily newspaper delivery via WhatsApp, built on Cloudflare Workers.
 
-## What's in this project (Piece 1 + Piece 3)
+## Features
 
-- **Webhook handler** — receives incoming WhatsApp messages, replies with subscription offer
-- **Admin panel** — password-protected web page for editorial team to broadcast each day
+- **Subscription flow** — inbound WhatsApp message triggers subscription offer with Yes/No buttons
+- **Opt-in consent logging** — Meta compliance audit trail
+- **Admin panel** — 3 pages: dashboard, subscribers, broadcasts
 - **Manual broadcast** — one-click send of today's PDF to all active subscribers
-- **Pilot subscriber management** — add/remove subscribers for internal testing (bypass payment)
-- **D1 database** — subscribers, messages, consent log, payments (placeholder)
+- **Per-recipient delivery tracking** — sent / delivered / read / failed
+- **Subscriber management** — add / pause / reactivate / unsubscribe / delete
+- **Pilot mode** — manually add subscribers bypassing payment
 
-Payment integration (Ottu/MyFatoorah) will be added later as Piece 2.
+## Admin panel pages
 
-## Architecture
+### `/admin` — Dashboard
+- Stats overview (active, new, unsubscribed, total)
+- Send today's edition form
+- Last broadcast summary
 
-```
-WhatsApp user ─┐
-               ├─→ Meta Cloud API ──→ Cloudflare Worker ──→ D1 Database
-Editorial team─┘                          │
-                                          └─→ /admin panel (HTML)
-```
+### `/admin/subscribers` — Subscribers
+- Filterable list (by state)
+- Search by phone, name, or note
+- Actions: activate, pause, unsubscribe, delete
+- Manual add form for pilot subscribers
 
-## Quick setup
+### `/admin/broadcasts` — Broadcast History
+- All past broadcasts with delivery counts
+- Click any row to see per-recipient details
 
-After cloning from GitHub:
+### `/admin/broadcasts/:id` — Broadcast Detail
+- Complete stats (target / sent / delivered / read / failed)
+- Per-recipient delivery status
+- Auto-refreshes to catch webhook status updates
+
+## Setup
+
+### First-time deployment
 
 ```bash
 npm install
 npx wrangler login
-```
-
-The database is already created (`aljarida-db`, ID `58c39bb5-bc17-478d-86ba-4f2d502ff537`).
-
-Apply schema:
-
-```bash
-npm run db:init
-```
-
-Set secrets:
-
-```bash
+npm run db:init          # applies schema to remote D1
+npx wrangler secret put ADMIN_PASSWORD
 npx wrangler secret put WHATSAPP_ACCESS_TOKEN
 npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID      # 1073619532500471
 npx wrangler secret put WHATSAPP_BUSINESS_ACCOUNT_ID  # 1414233037413528
-npx wrangler secret put WHATSAPP_VERIFY_TOKEN         # Pick a random string
-npx wrangler secret put ADMIN_PASSWORD                # Pick a strong password
-```
-
-Deploy:
-
-```bash
+npx wrangler secret put WHATSAPP_VERIFY_TOKEN
 npm run deploy
 ```
 
-Configure webhook in Meta Business Manager:
-- URL: `https://aljarida-whatsapp.YOUR-ACCOUNT.workers.dev/webhook`
-- Verify token: (same as WHATSAPP_VERIFY_TOKEN above)
-- Subscribe to: `messages`, `message_template_status_update`
+### Upgrading from Piece 3 (previous version)
 
-## Using the admin panel
+If you already have the previous version deployed:
 
-After deployment, visit:
-```
-https://aljarida-whatsapp.YOUR-ACCOUNT.workers.dev/admin
+```bash
+npm run db:migrate       # adds new columns and broadcast tables
+npm run deploy           # deploys the new code
 ```
 
-Log in with the ADMIN_PASSWORD. You'll see:
+The migration file uses `IF NOT EXISTS` patterns where possible. You may see a
+few "duplicate column name" errors for the ALTER TABLE statements — those are
+harmless if the columns already exist.
 
-1. **Stats dashboard** — active subscribers, total, new today
-2. **Send today's edition** — fills in today's PDF URL automatically, you add 3 headlines, click send
-3. **Add pilot subscriber** — manually add a phone number as an active subscriber (for pilot testing)
+## After deploy
 
-### Sending a daily broadcast
+Admin panel: `https://aljarida-whatsapp.YOUR-SUBDOMAIN.workers.dev/admin`
 
-1. Ensure today's PDF is uploaded to aljarida.com (existing editorial workflow)
-2. Go to `/admin`
-3. Verify the PDF URL shown matches today's edition
-4. Fill in the date (auto-filled in Arabic) and 3 headlines
-5. Click "Send to all subscribers"
-6. Confirm the prompt
-7. Wait for delivery report
+Log in with your `ADMIN_PASSWORD`.
 
-### Saturday behavior
+## Endpoints reference
 
-If you click "Send" on a Saturday (no edition normally), the panel shows a warning and asks you to confirm. You can still send if there's a special Saturday edition.
+### Public
+| Method | Path | Description |
+|--------|------|-------------|
+| GET  | `/` | Health check |
+| GET  | `/webhook` | Meta webhook verification |
+| POST | `/webhook` | Incoming WhatsApp events |
 
-### Adding pilot subscribers
+### Admin HTML pages
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/admin` | Dashboard |
+| GET | `/admin/subscribers` | Subscriber list |
+| GET | `/admin/broadcasts` | Broadcast history |
+| GET | `/admin/broadcasts/:id` | Broadcast detail |
 
-For the internal pilot, subscribers bypass the payment flow:
-
-1. Enter phone number in E.164 without `+` (e.g., `96599123456`)
-2. Optionally add a name for internal reference
-3. Click "Add" — the subscriber is marked as `active` immediately
-4. They'll receive the next broadcast
-
-## Project structure
-
-```
-aljarida-whatsapp/
-├── src/
-│   ├── index.js        Entry point, routing
-│   ├── handlers.js     Inbound message handling (subscription flow)
-│   ├── whatsapp.js     WhatsApp Cloud API wrapper
-│   ├── admin.js        Admin panel + broadcast endpoint
-│   └── templates.js    Arabic free-form message text
-├── schema.sql          D1 database schema
-├── wrangler.toml       Cloudflare Workers config
-├── package.json
-├── .dev.vars.example   Template for local secrets
-├── .gitignore
-└── README.md
-```
-
-## Endpoints
-
-| Method | Path | Description | Auth |
-|--------|------|-------------|------|
-| GET  | `/` | Health check | No |
-| GET  | `/webhook` | Meta webhook verification | No |
-| POST | `/webhook` | Incoming WhatsApp events | No |
-| GET  | `/admin` | Login page or dashboard | Cookie |
-| POST | `/admin/login` | Log in with password | No |
-| POST | `/admin/logout` | Clear session | Cookie |
-| GET  | `/admin/stats` | Subscriber counts (JSON) | Cookie |
-| POST | `/admin/broadcast` | Send daily template to all active subscribers | Cookie |
-| POST | `/admin/add-subscriber` | Manually add a pilot subscriber | Cookie |
-
-## Environment variables and secrets
-
-**Public (set in `wrangler.toml` under `[vars]`):**
-
-| Name | Value |
-|------|-------|
-| `ALJARIDA_PDF_BASE_URL` | `https://www.aljarida.com/uploads/pdf` |
-| `SUBSCRIPTION_PRICE_KWD` | `2.5` |
-| `TIMEZONE` | `Asia/Kuwait` |
-
-**Secrets (set via `wrangler secret put`):**
-
-| Name | Purpose |
-|------|---------|
-| `WHATSAPP_ACCESS_TOKEN` | Meta permanent access token |
-| `WHATSAPP_PHONE_NUMBER_ID` | `1073619532500471` |
-| `WHATSAPP_BUSINESS_ACCOUNT_ID` | `1414233037413528` |
-| `WHATSAPP_VERIFY_TOKEN` | Random string matching webhook config in Meta |
-| `ADMIN_PASSWORD` | Password for the `/admin` panel |
+### Admin API (JSON)
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/admin/login` | Form-based login |
+| POST | `/admin/logout` | Clear session |
+| GET | `/admin/api/stats` | Dashboard stats |
+| GET | `/admin/api/subscribers` | List subscribers (query: state, search, limit) |
+| POST | `/admin/api/subscribers/add` | Add a subscriber manually |
+| PATCH | `/admin/api/subscribers/:phone` | Update subscriber state/note |
+| DELETE | `/admin/api/subscribers/:phone` | Delete subscriber |
+| POST | `/admin/api/broadcast` | Send daily delivery to all active subscribers |
+| GET | `/admin/api/broadcasts` | List all broadcasts |
+| GET | `/admin/api/broadcasts/:id` | Broadcast details with per-recipient status |
 
 ## Approved Meta templates
 
-| Template Name | Used For | Notes |
-|---------------|----------|-------|
-| `aljarida_daily_delivery_ar` | Daily PDF broadcast | UTILITY, no buttons |
-| `aljarida_welcome_paid_ar` | Payment confirmation (Piece 2) | UTILITY, no header |
-
-## Monitoring
-
-Live logs:
-```bash
-npm run tail
-```
-
-Query active subscribers:
-```bash
-npm run db:query "SELECT phone, state, profile_name FROM subscribers WHERE state = 'active';"
-```
-
-Recent broadcasts:
-```bash
-npm run db:query "SELECT phone, last_delivery_at FROM subscribers WHERE last_delivery_at IS NOT NULL ORDER BY last_delivery_at DESC LIMIT 20;"
-```
+| Template Name | Category | Used For |
+|---------------|----------|----------|
+| `aljarida_daily_delivery_ar` | UTILITY | Daily PDF broadcast |
+| `aljarida_welcome_paid_ar` | UTILITY | Payment confirmation (Piece 2) |
 
 ## Brand identity
 
@@ -177,11 +113,69 @@ npm run db:query "SELECT phone, last_delivery_at FROM subscribers WHERE last_del
 - **Arabic:** جريدة الجريدة الرقمية
 - **WhatsApp display name:** جريدة الجريدة الرقمية
 
-## What's NOT in this project yet
+## Read receipts — important note
 
-- Payment integration (Ottu/MyFatoorah)
-- Automated subscription renewal
-- Email notifications
-- Bulk CSV import of pilot users
+WhatsApp's "read" status is only reported when the recipient has **read
+receipts enabled** in their WhatsApp settings. Many users disable this for
+privacy. The admin panel shows read data where available, but don't expect
+100% read reporting — 40-60% is typical.
 
-All intentionally deferred for pilot launch.
+Actual read rate is likely higher than reported.
+
+## Subscription states
+
+| State | Meaning |
+|-------|---------|
+| `new` | First-ever contact (transient) |
+| `offered` | Subscription offer was sent |
+| `yes` | Tapped YES on offer |
+| `awaiting_payment` | Payment link sent, awaiting completion |
+| `active` | Paid / receiving daily delivery |
+| `paused` | Temporarily stopped (admin action) |
+| `no` | Declined the offer |
+| `unsubscribed` | Opted out |
+
+## Project structure
+
+```
+aljarida-whatsapp/
+├── src/
+│   ├── index.js             Entry + routing
+│   ├── handlers.js          Inbound message logic
+│   ├── whatsapp.js          Meta Cloud API wrapper
+│   ├── templates.js         Arabic free-form messages
+│   ├── admin.js             Admin router + auth + API endpoints
+│   ├── admin_broadcast.js   Broadcast handler (separate for clarity)
+│   └── admin_pages.js       HTML page renderers
+├── schema.sql               Full database schema (fresh install)
+├── migrations.sql           Incremental migration (upgrade from v0.2)
+├── wrangler.toml
+├── package.json
+├── .gitignore
+├── .dev.vars.example
+└── README.md
+```
+
+## Monitoring
+
+```bash
+npm run tail                 # live logs
+```
+
+Database queries:
+```bash
+npm run db:query "SELECT COUNT(*) FROM subscribers WHERE state = 'active';"
+npm run db:query "SELECT * FROM broadcasts ORDER BY started_at DESC LIMIT 5;"
+```
+
+## Not yet built
+
+- Payment gateway integration (Piece 2 — Ottu/MyFatoorah)
+- Automated daily cron (intentionally manual per requirement)
+- Bulk CSV import/export
+- Scheduled broadcasts
+- Email/SMS alerts for failures
+
+## License
+
+Proprietary — AlJarida Digital. All rights reserved.

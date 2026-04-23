@@ -1,13 +1,6 @@
 /**
- * Arabic message templates for free-form replies.
- *
- * Brand:
- *   English: AlJarida Digital
- *   Arabic:  جريدة الجريدة الرقمية
- *
- * NOTE: The daily delivery and welcome-paid templates are Meta-approved templates
- * submitted separately; they're not here. This file has only free-form messages
- * used inside the 24-hour Customer Service Window.
+ * Arabic message templates for free-form replies (inside 24-hour CSW).
+ * Brand: جريدة الجريدة الرقمية / AlJarida Digital
  */
 
 export const messages = {
