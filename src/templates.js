@@ -1,17 +1,17 @@
 /**
- * Arabic message templates for all outbound messages.
+ * Arabic message templates for free-form replies.
  *
- * Keeping all user-facing text in one file makes it easy to:
- *   - Review wording with the editorial team
- *   - Adjust messaging without touching business logic
- *   - Add English translations later
+ * Brand:
+ *   English: AlJarida Digital
+ *   Arabic:  جريدة الجريدة الرقمية
  *
- * NOTE: The daily delivery message is NOT here — it uses a Meta-approved
- * template submitted separately via the Business Manager. That happens in Piece 3.
+ * NOTE: The daily delivery and welcome-paid templates are Meta-approved templates
+ * submitted separately; they're not here. This file has only free-form messages
+ * used inside the 24-hour Customer Service Window.
  */
 
 export const messages = {
-  offer: `أهلاً بك في جريدة الجريدة 📰
+  offer: `أهلاً بك في جريدة الجريدة الرقمية 📰
 
 نقدّم خدمة استلام العدد اليومي الكامل (PDF) على واتساب.
 
@@ -40,7 +40,7 @@ export const messages = {
 
 إذا غيّرت رأيك لاحقاً، فقط أرسل لنا أي رسالة ونحن هنا.
 
-شكراً لاهتمامك بجريدة الجريدة.`,
+شكراً لاهتمامك بجريدة الجريدة الرقمية.`,
 
   optOutConfirmation: `تم إلغاء اشتراكك بنجاح ✓
 
@@ -57,12 +57,4 @@ export const messages = {
 سيصلك العدد اليومي في الصباح كالمعتاد.
 
 إذا كنت بحاجة إلى مساعدة، يُرجى التواصل معنا.`,
-
-  welcomeAfterPayment: `تم تفعيل اشتراكك بنجاح! ✓
-
-ستبدأ باستلام العدد اليومي الكامل في أول يوم إصدار الساعة الصباح الباكر.
-
-للإلغاء في أي وقت، أرسل "إيقاف".
-
-شكراً لاختيارك جريدة الجريدة 📰`,
 };

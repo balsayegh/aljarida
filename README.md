@@ -1,260 +1,187 @@
-# Al-Jarida WhatsApp Service
+# AlJarida Digital — WhatsApp Delivery Service
 
-Daily newspaper delivery to subscribers via WhatsApp.
+Daily newspaper delivery via WhatsApp, built on Cloudflare Workers.
 
-## What this is
+## What's in this project (Piece 1 + Piece 3)
 
-A Cloudflare Worker that:
+- **Webhook handler** — receives incoming WhatsApp messages, replies with subscription offer
+- **Admin panel** — password-protected web page for editorial team to broadcast each day
+- **Manual broadcast** — one-click send of today's PDF to all active subscribers
+- **Pilot subscriber management** — add/remove subscribers for internal testing (bypass payment)
+- **D1 database** — subscribers, messages, consent log, payments (placeholder)
 
-- Receives inbound WhatsApp messages from prospective subscribers
-- Automatically replies with a subscription offer and Yes/No buttons
-- Handles opt-in consent (required by Meta's WhatsApp Business Policy)
-- Logs every interaction to a Cloudflare D1 database for audit purposes
-- (Future) Generates payment links via MyFatoorah
-- (Future) Broadcasts the daily PDF to all active subscribers
-
-This is **Piece 1** of the project. It establishes the foundation — inbound message handling, opt-in flow, and the database. Payment integration (Piece 2) and daily broadcast (Piece 3) will build on this.
+Payment integration (Ottu/MyFatoorah) will be added later as Piece 2.
 
 ## Architecture
 
 ```
-┌─────────────────┐      ┌──────────────────┐      ┌────────────────┐
-│  WhatsApp user  │─────▶│  Meta Cloud API  │─────▶│  This Worker   │
-└─────────────────┘      └──────────────────┘      └────────┬───────┘
-                                                            │
-                                                            ▼
-                                                   ┌────────────────┐
-                                                   │  Cloudflare D1 │
-                                                   │   (database)   │
-                                                   └────────────────┘
+WhatsApp user ─┐
+               ├─→ Meta Cloud API ──→ Cloudflare Worker ──→ D1 Database
+Editorial team─┘                          │
+                                          └─→ /admin panel (HTML)
 ```
 
-## Prerequisites
+## Quick setup
 
-Before you can deploy, you need:
-
-1. **A Cloudflare account** (free sign-up at [cloudflare.com](https://cloudflare.com))
-2. **Node.js 20+** installed on your laptop
-3. **A WhatsApp Business Account** with:
-   - An approved phone number
-   - A permanent access token (never use temporary tokens in production)
-   - Phone Number ID and WhatsApp Business Account ID
-4. **Git** installed (for pushing to GitHub)
-
-## First-time setup
-
-### 1. Install dependencies
+After cloning from GitHub:
 
 ```bash
 npm install
-```
-
-### 2. Log into Cloudflare
-
-```bash
 npx wrangler login
 ```
 
-This opens your browser for a one-time login. Wrangler stores credentials locally.
+The database is already created (`aljarida-db`, ID `58c39bb5-bc17-478d-86ba-4f2d502ff537`).
 
-### 3. Create the D1 database
-
-```bash
-npm run db:create
-```
-
-This prints output like:
-
-```
-✅ Successfully created DB 'aljarida-db'
-
-[[d1_databases]]
-binding = "DB"
-database_name = "aljarida-db"
-database_id = "abc123def-4567-..."
-```
-
-**Copy the `database_id` value** and paste it into `wrangler.toml`, replacing the `REPLACE_WITH_DATABASE_ID_FROM_WRANGLER_D1_CREATE_OUTPUT` placeholder.
-
-### 4. Apply the database schema
+Apply schema:
 
 ```bash
 npm run db:init
 ```
 
-This creates all the tables. Expected output: `Executed X commands in Y.Yms`.
-
-### 5. Configure your secrets
-
-For **production** deployment, store secrets using Wrangler:
+Set secrets:
 
 ```bash
 npx wrangler secret put WHATSAPP_ACCESS_TOKEN
-npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID
-npx wrangler secret put WHATSAPP_BUSINESS_ACCOUNT_ID
-npx wrangler secret put WHATSAPP_VERIFY_TOKEN
+npx wrangler secret put WHATSAPP_PHONE_NUMBER_ID      # 1073619532500471
+npx wrangler secret put WHATSAPP_BUSINESS_ACCOUNT_ID  # 1414233037413528
+npx wrangler secret put WHATSAPP_VERIFY_TOKEN         # Pick a random string
+npx wrangler secret put ADMIN_PASSWORD                # Pick a strong password
 ```
 
-For each, Wrangler will prompt you to paste the value. These are encrypted and stored in Cloudflare — never committed to git.
-
-For **local development**, copy `.dev.vars.example` to `.dev.vars` and fill in the values there:
-
-```bash
-cp .dev.vars.example .dev.vars
-# Then edit .dev.vars with your credentials
-```
-
-The `.dev.vars` file is git-ignored, so it's safe to put real values there.
-
-### 6. Pick your webhook verify token
-
-The `WHATSAPP_VERIFY_TOKEN` is a random string you choose. It's used once by Meta to verify you control the webhook URL. Pick something long and unique, e.g.:
-
-```
-aljarida_whatsapp_webhook_verify_2026_kuwait_xyz789abc
-```
-
-You'll enter the exact same value in Meta Business Manager when configuring the webhook (see below). If they don't match, the webhook won't verify.
-
-### 7. Deploy
+Deploy:
 
 ```bash
 npm run deploy
 ```
 
-Wrangler will deploy your Worker and print its URL, e.g.:
+Configure webhook in Meta Business Manager:
+- URL: `https://aljarida-whatsapp.YOUR-ACCOUNT.workers.dev/webhook`
+- Verify token: (same as WHATSAPP_VERIFY_TOKEN above)
+- Subscribe to: `messages`, `message_template_status_update`
 
+## Using the admin panel
+
+After deployment, visit:
 ```
-Deployed aljarida-whatsapp.your-account.workers.dev
-```
-
-**Copy this URL — you'll need it for the next step.**
-
-### 8. Configure the webhook in Meta Business Manager
-
-1. Go to [developers.facebook.com](https://developers.facebook.com)
-2. Select your WhatsApp app → **WhatsApp** → **Configuration**
-3. Under **Webhook**, click **Edit**
-4. **Callback URL**: `https://aljarida-whatsapp.your-account.workers.dev/webhook`
-5. **Verify token**: (the exact value you set for `WHATSAPP_VERIFY_TOKEN`)
-6. Click **Verify and save**
-7. Subscribe to these webhook fields:
-   - `messages`
-   - `message_template_status_update` (for Piece 3)
-
-If verification fails, double-check the token matches exactly (no whitespace).
-
-### 9. Test with your own phone
-
-Send a WhatsApp message — any text — to your business number. Within a second or two, you should receive the subscription offer with Yes/No buttons.
-
-Tap **نعم** (Yes). You should receive the payment prompt (placeholder for now; real MyFatoorah integration comes in Piece 2).
-
-## Local development
-
-To run the Worker locally on your laptop:
-
-```bash
-npm run dev
+https://aljarida-whatsapp.YOUR-ACCOUNT.workers.dev/admin
 ```
 
-This starts a local server, typically at `http://localhost:8787`. Use **ngrok** or **Cloudflare Tunnel** to expose it to the internet so Meta can reach it:
+Log in with the ADMIN_PASSWORD. You'll see:
 
-```bash
-# In another terminal:
-ngrok http 8787
-# Then use the ngrok HTTPS URL as your webhook in Meta Business Manager
-```
+1. **Stats dashboard** — active subscribers, total, new today
+2. **Send today's edition** — fills in today's PDF URL automatically, you add 3 headlines, click send
+3. **Add pilot subscriber** — manually add a phone number as an active subscriber (for pilot testing)
 
-Local D1 is separate from production D1. Initialize it once:
+### Sending a daily broadcast
 
-```bash
-npm run db:init:local
-```
+1. Ensure today's PDF is uploaded to aljarida.com (existing editorial workflow)
+2. Go to `/admin`
+3. Verify the PDF URL shown matches today's edition
+4. Fill in the date (auto-filled in Arabic) and 3 headlines
+5. Click "Send to all subscribers"
+6. Confirm the prompt
+7. Wait for delivery report
 
-## Monitoring
+### Saturday behavior
 
-### Live logs
+If you click "Send" on a Saturday (no edition normally), the panel shows a warning and asks you to confirm. You can still send if there's a special Saturday edition.
 
-See real-time logs from your deployed Worker:
+### Adding pilot subscribers
 
-```bash
-npm run tail
-```
+For the internal pilot, subscribers bypass the payment flow:
 
-This streams every request the Worker receives, including webhook calls from Meta.
-
-### Query the database
-
-Check subscribers:
-
-```bash
-npm run db:query "SELECT phone, state, first_contact_at FROM subscribers ORDER BY first_contact_at DESC LIMIT 20;"
-```
-
-Check recent messages:
-
-```bash
-npm run db:query "SELECT phone, direction, message_type, created_at FROM messages ORDER BY created_at DESC LIMIT 20;"
-```
-
-Check opt-ins:
-
-```bash
-npm run db:query "SELECT phone, consent_type, timestamp FROM consent_log ORDER BY timestamp DESC LIMIT 20;"
-```
-
-## What's next
-
-This is Piece 1. Upcoming pieces:
-
-- **Piece 2** — MyFatoorah payment integration
-  - Generate payment links per subscriber
-  - Handle payment webhook to activate subscription
-  - Send welcome message after payment
-  - Track subscription expiry/renewal
-
-- **Piece 3** — Admin panel + daily broadcast
-  - Login-protected admin page at `/admin`
-  - Submit daily template to Meta
-  - Broadcast the day's PDF to all active subscribers with one click
-  - Live delivery progress tracking
-
-- **Piece 4** — Pilot onboarding tools
-  - Bulk add pilot subscribers (skip payment for staff/testing)
-  - Pilot feedback collection
-  - Simple reporting dashboard
-
-## Troubleshooting
-
-**Webhook verification fails:** The verify token in Meta Business Manager must exactly match your `WHATSAPP_VERIFY_TOKEN` secret. Copy-paste carefully (no trailing spaces).
-
-**Worker returns 500:** Check live logs with `npm run tail`. Most common causes: missing secret, malformed D1 query, Meta API error.
-
-**Messages not sending:** Check that:
-- The access token is permanent (not temporary — temporary tokens expire after 24 hours)
-- The phone number is approved and verified in Meta Business Manager
-- The target phone has opted in (for templates) or has an open CSW (for free-form messages)
-
-**Inbound messages not arriving:** Check that your webhook is subscribed to the `messages` field in Meta Business Manager.
+1. Enter phone number in E.164 without `+` (e.g., `96599123456`)
+2. Optionally add a name for internal reference
+3. Click "Add" — the subscriber is marked as `active` immediately
+4. They'll receive the next broadcast
 
 ## Project structure
 
 ```
 aljarida-whatsapp/
 ├── src/
-│   ├── index.js        # Worker entry point and routing
-│   ├── handlers.js     # Business logic (state machine)
-│   ├── whatsapp.js     # Meta Cloud API wrapper
-│   └── templates.js    # Arabic message templates
-├── schema.sql          # D1 database schema
-├── wrangler.toml       # Cloudflare Workers config
-├── package.json        # Node dependencies and scripts
-├── .dev.vars.example   # Template for local secrets
+│   ├── index.js        Entry point, routing
+│   ├── handlers.js     Inbound message handling (subscription flow)
+│   ├── whatsapp.js     WhatsApp Cloud API wrapper
+│   ├── admin.js        Admin panel + broadcast endpoint
+│   └── templates.js    Arabic free-form message text
+├── schema.sql          D1 database schema
+├── wrangler.toml       Cloudflare Workers config
+├── package.json
+├── .dev.vars.example   Template for local secrets
 ├── .gitignore
 └── README.md
 ```
 
-## License
+## Endpoints
 
-Proprietary — Al-Jarida newspaper. All rights reserved.
+| Method | Path | Description | Auth |
+|--------|------|-------------|------|
+| GET  | `/` | Health check | No |
+| GET  | `/webhook` | Meta webhook verification | No |
+| POST | `/webhook` | Incoming WhatsApp events | No |
+| GET  | `/admin` | Login page or dashboard | Cookie |
+| POST | `/admin/login` | Log in with password | No |
+| POST | `/admin/logout` | Clear session | Cookie |
+| GET  | `/admin/stats` | Subscriber counts (JSON) | Cookie |
+| POST | `/admin/broadcast` | Send daily template to all active subscribers | Cookie |
+| POST | `/admin/add-subscriber` | Manually add a pilot subscriber | Cookie |
+
+## Environment variables and secrets
+
+**Public (set in `wrangler.toml` under `[vars]`):**
+
+| Name | Value |
+|------|-------|
+| `ALJARIDA_PDF_BASE_URL` | `https://www.aljarida.com/uploads/pdf` |
+| `SUBSCRIPTION_PRICE_KWD` | `2.5` |
+| `TIMEZONE` | `Asia/Kuwait` |
+
+**Secrets (set via `wrangler secret put`):**
+
+| Name | Purpose |
+|------|---------|
+| `WHATSAPP_ACCESS_TOKEN` | Meta permanent access token |
+| `WHATSAPP_PHONE_NUMBER_ID` | `1073619532500471` |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | `1414233037413528` |
+| `WHATSAPP_VERIFY_TOKEN` | Random string matching webhook config in Meta |
+| `ADMIN_PASSWORD` | Password for the `/admin` panel |
+
+## Approved Meta templates
+
+| Template Name | Used For | Notes |
+|---------------|----------|-------|
+| `aljarida_daily_delivery_ar` | Daily PDF broadcast | UTILITY, no buttons |
+| `aljarida_welcome_paid_ar` | Payment confirmation (Piece 2) | UTILITY, no header |
+
+## Monitoring
+
+Live logs:
+```bash
+npm run tail
+```
+
+Query active subscribers:
+```bash
+npm run db:query "SELECT phone, state, profile_name FROM subscribers WHERE state = 'active';"
+```
+
+Recent broadcasts:
+```bash
+npm run db:query "SELECT phone, last_delivery_at FROM subscribers WHERE last_delivery_at IS NOT NULL ORDER BY last_delivery_at DESC LIMIT 20;"
+```
+
+## Brand identity
+
+- **English:** AlJarida Digital
+- **Arabic:** جريدة الجريدة الرقمية
+- **WhatsApp display name:** جريدة الجريدة الرقمية
+
+## What's NOT in this project yet
+
+- Payment integration (Ottu/MyFatoorah)
+- Automated subscription renewal
+- Email notifications
+- Bulk CSV import of pilot users
+
+All intentionally deferred for pilot launch.

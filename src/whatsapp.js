@@ -1,18 +1,12 @@
 /**
  * WhatsApp Cloud API wrapper.
- *
- * All outbound messaging goes through these functions. They hide the Meta API
- * details so the rest of the code stays readable.
- *
- * API docs: https://developers.facebook.com/docs/whatsapp/cloud-api/reference
+ * All outbound messaging goes through these functions.
  */
 
 const GRAPH_API_VERSION = 'v22.0';
 
 /**
- * Send a plain text message.
- * Only works inside an open 24-hour Customer Service Window (CSW).
- * Used for replies to incoming messages.
+ * Send a plain text message (inside 24-hour CSW only).
  */
 export async function sendTextMessage(env, to, text) {
   return sendMessage(env, {
@@ -24,10 +18,7 @@ export async function sendTextMessage(env, to, text) {
 }
 
 /**
- * Send the subscription offer with two reply buttons.
- * Must be sent inside the CSW (since it's a free-form interactive message,
- * not a template). All inbound messages open a 24-hour CSW, so this is fine
- * as an immediate reply.
+ * Send subscription offer with Yes/No buttons (inside CSW).
  */
 export async function sendOfferWithButtons(env, to, bodyText) {
   return sendMessage(env, {
@@ -39,14 +30,8 @@ export async function sendOfferWithButtons(env, to, bodyText) {
       body: { text: bodyText },
       action: {
         buttons: [
-          {
-            type: 'reply',
-            reply: { id: 'subscribe_yes', title: '✅ نعم' },
-          },
-          {
-            type: 'reply',
-            reply: { id: 'subscribe_no', title: '❌ لاحقاً' },
-          },
+          { type: 'reply', reply: { id: 'subscribe_yes', title: '✅ نعم' } },
+          { type: 'reply', reply: { id: 'subscribe_no', title: '❌ لاحقاً' } },
         ],
       },
     },
@@ -54,34 +39,80 @@ export async function sendOfferWithButtons(env, to, bodyText) {
 }
 
 /**
- * Send payment prompt.
- * In Piece 2, this will include a real MyFatoorah payment URL.
- * For now, it sends a placeholder text so you can test the flow end-to-end.
+ * Send payment prompt. Placeholder for Piece 2 (payment integration).
  */
 export async function sendPaymentPrompt(env, to, text) {
-  // Placeholder for Piece 1 — Piece 2 will replace with real payment URL
   return sendTextMessage(env, to, text);
 }
 
 /**
- * Send a pre-approved template (for business-initiated messages outside CSW).
- * This is what the daily broadcast will use in Piece 3.
+ * Send the daily delivery template with PDF attachment.
+ *
+ * Uses the approved template: aljarida_daily_delivery_ar
+ * - Header: DOCUMENT (PDF URL)
+ * - Body: date + 3 headlines
+ * - Footer: opt-out instruction
  */
-export async function sendTemplate(env, to, templateName, languageCode, components) {
+export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, headlines) {
   return sendMessage(env, {
     messaging_product: 'whatsapp',
     to,
     type: 'template',
     template: {
-      name: templateName,
-      language: { code: languageCode },
-      components: components || [],
+      name: 'aljarida_daily_delivery_ar',
+      language: { code: 'ar' },
+      components: [
+        {
+          type: 'header',
+          parameters: [
+            {
+              type: 'document',
+              document: {
+                link: pdfUrl,
+                filename: `aljarida-${dateString.replace(/[^0-9]/g, '')}.pdf`,
+              },
+            },
+          ],
+        },
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: dateString },
+            { type: 'text', text: headlines[0] || '' },
+            { type: 'text', text: headlines[1] || '' },
+            { type: 'text', text: headlines[2] || '' },
+          ],
+        },
+      ],
     },
   });
 }
 
 /**
- * Low-level send function. All other senders route through this.
+ * Send welcome-after-payment template (used by Piece 2 when payment webhook fires).
+ */
+export async function sendWelcomePaidTemplate(env, to, renewalDate) {
+  return sendMessage(env, {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name: 'aljarida_welcome_paid_ar',
+      language: { code: 'ar' },
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: renewalDate },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+/**
+ * Low-level send function.
  */
 async function sendMessage(env, body) {
   const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
@@ -99,7 +130,7 @@ async function sendMessage(env, body) {
 
   if (!response.ok) {
     console.error('WhatsApp API error:', JSON.stringify(result));
-    throw new Error(`WhatsApp API returned ${response.status}: ${JSON.stringify(result.error)}`);
+    throw new Error(`WhatsApp API ${response.status}: ${JSON.stringify(result.error)}`);
   }
 
   console.log(`Message sent to ${body.to}, id: ${result.messages?.[0]?.id}`);

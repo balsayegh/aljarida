@@ -1,35 +1,16 @@
 name = "aljarida-whatsapp"
 main = "src/index.js"
-compatibility_date = "2026-04-21"
-
-# Workers Paid plan is recommended ($5/month) for the pilot to get:
-# - 30-second CPU time per request (vs 10ms on free)
-# - Higher request limits
-# - Cron trigger support for future use
+compatibility_date = "2026-04-23"
 
 [observability]
 enabled = true
 
-# ----------------------------------------------------------------------------
-# D1 Database binding
-# ----------------------------------------------------------------------------
-# After running `wrangler d1 create aljarida-db`, paste the database_id that
-# Wrangler prints into the field below, then save.
-
 [[d1_databases]]
 binding = "DB"
 database_name = "aljarida-db"
-database_id = "REPLACE_WITH_DATABASE_ID_FROM_WRANGLER_D1_CREATE_OUTPUT"
-
-# ----------------------------------------------------------------------------
-# Environment variables (non-secret)
-# ----------------------------------------------------------------------------
-# Public-safe config values. Secrets go in `wrangler secret put` (see README).
+database_id = "58c39bb5-bc17-478d-86ba-4f2d502ff537"
 
 [vars]
-# Base URL for the website that hosts daily PDFs
 ALJARIDA_PDF_BASE_URL = "https://www.aljarida.com/uploads/pdf"
-# Monthly subscription price in Kuwaiti Dinars
 SUBSCRIPTION_PRICE_KWD = "2.5"
-# Kuwait timezone (for date formatting and schedule logic)
 TIMEZONE = "Asia/Kuwait"
