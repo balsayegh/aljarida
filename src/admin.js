@@ -41,6 +41,7 @@ import {
   addTagAction, removeTagAction, changePlanAction, addPaymentAction,
   getEvents, getPayments,
 } from './admin_api_v2.js';
+import { timingSafeEqual } from './crypto_util.js';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
@@ -209,7 +210,7 @@ async function verifySession(request, env) {
   try {
     const payload = atob(encodedPayload);
     const expectedSignature = await signHmac(payload, env.ADMIN_PASSWORD);
-    if (signature !== expectedSignature) return false;
+    if (!timingSafeEqual(signature, expectedSignature)) return false;
     return parseInt(payload, 10) > Date.now();
   } catch {
     return false;

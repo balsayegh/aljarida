@@ -5,6 +5,7 @@
 import { handleInboundMessage, handleStatusUpdate } from './handlers.js';
 import { handleAdminRequest } from './admin.js';
 import { handleScheduledTask } from './cron.js';
+import { timingSafeEqual, verifyMetaSignature } from './crypto_util.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -46,7 +47,7 @@ function handleWebhookVerification(url, env) {
   const token = url.searchParams.get('hub.verify_token');
   const challenge = url.searchParams.get('hub.challenge');
 
-  if (mode === 'subscribe' && token === env.WHATSAPP_VERIFY_TOKEN) {
+  if (mode === 'subscribe' && timingSafeEqual(token || '', env.WHATSAPP_VERIFY_TOKEN || '')) {
     return new Response(challenge, { status: 200 });
   }
   return new Response('Forbidden', { status: 403 });
@@ -54,7 +55,15 @@ function handleWebhookVerification(url, env) {
 
 async function handleWebhookEvent(request, env, ctx) {
   try {
-    const payload = await request.json();
+    const rawBody = await request.text();
+    const signature = request.headers.get('x-hub-signature-256');
+
+    if (!(await verifyMetaSignature(rawBody, signature, env.WHATSAPP_APP_SECRET))) {
+      console.warn('Webhook signature verification failed');
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    const payload = JSON.parse(rawBody);
     if (payload.object !== 'whatsapp_business_account') {
       return new Response('OK', { status: 200 });
     }
