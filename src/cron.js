@@ -40,10 +40,10 @@ async function sendRenewalReminders(env) {
   const now = Date.now();
   let sent7 = 0, sent1 = 0, failed = 0;
 
-  // Check 7-day reminders
-  // A subscriber qualifies if their end_at is between 6.5 and 7.5 days from now
-  // and they haven't received a 7-day reminder yet
-  const sevenDaysFromNow = now + 7 * DAY_MS;
+  // 7-day reminder: catch anyone expiring in the next 6-8 days who hasn't
+  // already received their 7-day reminder. The ±1 day window (vs the old
+  // ±12 hours) lets us recover if a single cron run is missed.
+  // Idempotency is guaranteed by last_reminder_days_before != 7.
   const { results: seven } = await env.DB.prepare(
     `SELECT phone, profile_name, subscription_end_at, last_reminder_days_before, last_reminder_sent_at
      FROM subscribers
@@ -55,9 +55,9 @@ async function sendRenewalReminders(env) {
             OR last_reminder_sent_at < ?)`
   ).bind(
     PLAN_PILOT,
-    sevenDaysFromNow - DAY_MS / 2,
-    sevenDaysFromNow + DAY_MS / 2,
-    now - 6 * DAY_MS  // avoid re-sending within 6 days
+    now + 6 * DAY_MS,
+    now + 8 * DAY_MS,
+    now - 6 * DAY_MS  // allow re-send only if the last 7-day reminder was >6 days ago
   ).all();
 
   for (const sub of seven) {
@@ -74,8 +74,8 @@ async function sendRenewalReminders(env) {
     }
   }
 
-  // Check 1-day reminders
-  const oneDayFromNow = now + DAY_MS;
+  // 1-day reminder: catch anyone expiring in the next 0-2 days who hasn't
+  // already received their 1-day reminder. Covers missed cron runs.
   const { results: one } = await env.DB.prepare(
     `SELECT phone, profile_name, subscription_end_at, last_reminder_days_before, last_reminder_sent_at
      FROM subscribers
@@ -86,8 +86,8 @@ async function sendRenewalReminders(env) {
        AND (last_reminder_days_before IS NULL OR last_reminder_days_before != 1)`
   ).bind(
     PLAN_PILOT,
-    oneDayFromNow - DAY_MS / 2,
-    oneDayFromNow + DAY_MS / 2
+    now,
+    now + 2 * DAY_MS
   ).all();
 
   for (const sub of one) {

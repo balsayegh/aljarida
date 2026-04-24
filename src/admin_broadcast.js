@@ -11,6 +11,11 @@
 
 import { sendDailyDeliveryTemplate } from './whatsapp.js';
 import { jsonResponse } from './admin.js';
+import { getNextPublishingDate } from './date_util.js';
+
+// Chunk size for parallel WhatsApp sends. Keeps the HTTP response fast
+// without blowing through Workers' per-request subrequest limit all at once.
+const BROADCAST_CHUNK_SIZE = 15;
 
 export async function handleBroadcast(request, env, ctx) {
   try {
@@ -108,33 +113,50 @@ export async function handleBroadcast(request, env, ctx) {
     let sentCount = 0;
     let failedCount = 0;
 
-    for (const sub of subscribers) {
-      try {
-        const response = await sendDailyDeliveryTemplate(env, sub.phone, pdfUrl, date, headlines);
-        const waMessageId = response.messages?.[0]?.id || null;
+    // Send in parallel chunks; batch each chunk's DB writes into a single
+    // transaction so N subscribers = N Meta calls + N/CHUNK_SIZE DB batches
+    // instead of 2N sequential DB calls.
+    for (let i = 0; i < subscribers.length; i += BROADCAST_CHUNK_SIZE) {
+      const chunk = subscribers.slice(i, i + BROADCAST_CHUNK_SIZE);
+      const results = await Promise.all(
+        chunk.map(async (sub) => {
+          try {
+            const response = await sendDailyDeliveryTemplate(env, sub.phone, pdfUrl, date, headlines);
+            return { sub, ok: true, waMessageId: response.messages?.[0]?.id || null };
+          } catch (err) {
+            console.error(`Failed to send to ${sub.phone}:`, err.message);
+            return { sub, ok: false, error: err.message };
+          }
+        })
+      );
 
-        await env.DB.prepare(
-          `INSERT INTO broadcast_recipients
-            (broadcast_id, phone, wa_message_id, send_status, created_at)
-           VALUES (?, ?, ?, 'sent', ?)`
-        ).bind(broadcastId, sub.phone, waMessageId, Date.now()).run();
-
-        await env.DB.prepare(
-          `UPDATE subscribers SET last_delivery_at = ? WHERE phone = ?`
-        ).bind(Date.now(), sub.phone).run();
-
-        sentCount++;
-      } catch (err) {
-        console.error(`Failed to send to ${sub.phone}:`, err.message);
-
-        await env.DB.prepare(
-          `INSERT INTO broadcast_recipients
-            (broadcast_id, phone, send_status, error_message, created_at)
-           VALUES (?, ?, 'failed', ?, ?)`
-        ).bind(broadcastId, sub.phone, err.message, Date.now()).run();
-
-        failedCount++;
+      const stmts = [];
+      const ts = Date.now();
+      for (const r of results) {
+        if (r.ok) {
+          stmts.push(
+            env.DB.prepare(
+              `INSERT INTO broadcast_recipients
+                (broadcast_id, phone, wa_message_id, send_status, created_at)
+               VALUES (?, ?, ?, 'sent', ?)`
+            ).bind(broadcastId, r.sub.phone, r.waMessageId, ts),
+            env.DB.prepare(
+              `UPDATE subscribers SET last_delivery_at = ? WHERE phone = ?`
+            ).bind(ts, r.sub.phone)
+          );
+          sentCount++;
+        } else {
+          stmts.push(
+            env.DB.prepare(
+              `INSERT INTO broadcast_recipients
+                (broadcast_id, phone, send_status, error_message, created_at)
+               VALUES (?, ?, 'failed', ?, ?)`
+            ).bind(broadcastId, r.sub.phone, r.error, ts)
+          );
+          failedCount++;
+        }
       }
+      if (stmts.length) await env.DB.batch(stmts);
     }
 
     await env.DB.prepare(
@@ -157,14 +179,3 @@ export async function handleBroadcast(request, env, ctx) {
   }
 }
 
-function getNextPublishingDate() {
-  const kuwait = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
-  const target = new Date(kuwait);
-  target.setDate(target.getDate() + 1);
-
-  if (target.getDay() === 6) {
-    target.setDate(target.getDate() + 1);
-  }
-
-  return target;
-}
