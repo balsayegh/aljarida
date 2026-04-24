@@ -70,41 +70,59 @@ export async function handleInboundMessage(message, contacts, env) {
 }
 
 /**
- * Status updates from Meta: sent, delivered, read, failed.
- * We update both `message_status` (raw log) and `broadcast_recipients`
- * (per-broadcast tracking) when applicable.
+ * Status updates from Meta — batched.
+ *
+ * A single webhook POST can carry dozens or hundreds of status events
+ * (sent/delivered/read/failed). Previously each one fired its own
+ * ctx.waitUntil, producing 2N parallel D1 writes. Now we collect them
+ * and issue ONE env.DB.batch() — 1 subrequest per POST instead of 2N,
+ * with identical write semantics.
+ *
+ * Idempotency is still via the UNIQUE(wa_message_id, status) index on
+ * message_status — INSERT OR IGNORE dedupes on retry. The paired
+ * UPDATE on broadcast_recipients is naturally idempotent (same fields
+ * → same row state).
  */
-export async function handleStatusUpdate(status, env) {
-  const waMessageId = status.id;
-  const statusType = status.status;
-  const timestamp = parseInt(status.timestamp, 10) * 1000;
-  const recipient = status.recipient_id;
-  const errorCode = status.errors?.[0]?.code || null;
-  const errorTitle = status.errors?.[0]?.title || null;
+export async function handleStatusUpdates(statuses, env) {
+  if (!statuses.length) return;
 
-  console.log(`Status update: ${waMessageId} → ${statusType}`);
+  const stmts = [];
+  for (const status of statuses) {
+    const waMessageId = status.id;
+    const statusType = status.status;
+    const timestamp = parseInt(status.timestamp, 10) * 1000;
+    const recipient = status.recipient_id;
+    const errorCode = status.errors?.[0]?.code || null;
+    const errorTitle = status.errors?.[0]?.title || null;
 
-  // Log the raw status event. Meta retries webhooks on 5xx/timeout, so we use
-  // INSERT OR IGNORE with a (wa_message_id, status) unique index to dedupe.
-  await env.DB.prepare(
-    `INSERT OR IGNORE INTO message_status (wa_message_id, status, timestamp, recipient, error_code, error_title)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(waMessageId, statusType, timestamp, recipient, errorCode, errorTitle).run();
+    stmts.push(
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO message_status
+          (wa_message_id, status, timestamp, recipient, error_code, error_title)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).bind(waMessageId, statusType, timestamp, recipient, errorCode, errorTitle)
+    );
 
-  // Update broadcast_recipients if this message belongs to a broadcast
-  const updateFields = { delivery_status: statusType };
-  if (statusType === 'delivered') updateFields.delivered_at = timestamp;
-  if (statusType === 'read') updateFields.read_at = timestamp;
-  if (statusType === 'failed') updateFields.error_message = errorTitle || `Error code ${errorCode}`;
+    // Update broadcast_recipients if this message belongs to a broadcast.
+    // Fields depend on status type, so each statement is shaped differently.
+    const updateFields = { delivery_status: statusType };
+    if (statusType === 'delivered') updateFields.delivered_at = timestamp;
+    if (statusType === 'read') updateFields.read_at = timestamp;
+    if (statusType === 'failed') updateFields.error_message = errorTitle || `Error code ${errorCode}`;
 
-  // Build dynamic update
-  const setClauses = Object.keys(updateFields).map(k => `${k} = ?`).join(', ');
-  const values = Object.values(updateFields);
-  values.push(waMessageId);
+    const setClauses = Object.keys(updateFields).map(k => `${k} = ?`).join(', ');
+    const values = Object.values(updateFields);
+    values.push(waMessageId);
 
-  await env.DB.prepare(
-    `UPDATE broadcast_recipients SET ${setClauses} WHERE wa_message_id = ?`
-  ).bind(...values).run();
+    stmts.push(
+      env.DB.prepare(
+        `UPDATE broadcast_recipients SET ${setClauses} WHERE wa_message_id = ?`
+      ).bind(...values)
+    );
+  }
+
+  await env.DB.batch(stmts);
+  console.log(`[webhook] processed ${statuses.length} status events in one batch`);
 }
 
 // ----------------------------------------------------------------------------

@@ -2,7 +2,7 @@
  * AlJarida Digital WhatsApp Service — Worker entry point
  */
 
-import { handleInboundMessage, handleStatusUpdate } from './handlers.js';
+import { handleInboundMessage, handleStatusUpdates } from './handlers.js';
 import { handleAdminRequest } from './admin.js';
 import { handleScheduledTask } from './cron.js';
 import { timingSafeEqual, verifyMetaSignature } from './crypto_util.js';
@@ -79,6 +79,10 @@ async function handleWebhookEvent(request, env, ctx) {
       return new Response('OK', { status: 200 });
     }
 
+    // Collect statuses across all entries/changes so we can batch the D1
+    // writes into a single transaction (see handleStatusUpdates).
+    const allStatuses = [];
+
     for (const entry of payload.entry || []) {
       for (const change of entry.changes || []) {
         const value = change.value;
@@ -93,14 +97,16 @@ async function handleWebhookEvent(request, env, ctx) {
         }
 
         if (value.statuses) {
-          for (const status of value.statuses) {
-            ctx.waitUntil(
-              handleStatusUpdate(status, env)
-                .catch(err => console.error('Status handler error:', err))
-            );
-          }
+          allStatuses.push(...value.statuses);
         }
       }
+    }
+
+    if (allStatuses.length > 0) {
+      ctx.waitUntil(
+        handleStatusUpdates(allStatuses, env)
+          .catch(err => console.error('Status batch handler error:', err))
+      );
     }
 
     return new Response('OK', { status: 200 });
