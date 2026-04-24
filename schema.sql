@@ -144,6 +144,8 @@ CREATE TABLE IF NOT EXISTS broadcast_recipients (
 CREATE INDEX IF NOT EXISTS idx_br_recipients_broadcast ON broadcast_recipients(broadcast_id);
 CREATE INDEX IF NOT EXISTS idx_br_recipients_phone ON broadcast_recipients(phone);
 CREATE INDEX IF NOT EXISTS idx_br_recipients_wa_id ON broadcast_recipients(wa_message_id);
+-- Idempotency for queue consumer: dedupe (broadcast, phone) so a retried queue message won't double-send.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_br_recipients_unique ON broadcast_recipients(broadcast_id, phone);
 
 -- ----------------------------------------------------------------------------
 -- Payments (manual entries; payment gateway integration pending)
