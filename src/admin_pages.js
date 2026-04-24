@@ -145,6 +145,15 @@ export const SHARED_CSS = `
   tr:hover { background: #f9f9fb; }
   .phone { font-family: 'SF Mono', Monaco, monospace; direction: ltr; text-align: left; }
 
+  /* Clickable subscriber rows */
+  .sub-row { cursor: pointer; transition: background 0.1s; }
+  .sub-row:hover { background: #eef5fc !important; }
+  .phone-link { color: #0066cc; text-decoration: none; font-weight: 500; }
+  .phone-link:hover { text-decoration: underline; }
+  .view-link { color: #0066cc; font-size: 13px; white-space: nowrap; text-decoration: none; font-weight: 500; }
+  .view-link:hover { text-decoration: underline; }
+  .actions-cell { white-space: nowrap; }
+
   .filters-row {
     display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
   }
@@ -665,14 +674,16 @@ async function loadSubscribers() {
 
 function renderTable(subs, total) {
   const rows = subs.map(function(s) {
-    return '<tr>' +
-      '<td class="phone">' + escapeHtml(s.phone) + '</td>' +
+    const detailUrl = '/admin/subscribers/' + encodeURIComponent(s.phone);
+    return '<tr class="sub-row" onclick="openDetail(\\''+ s.phone +'\\', event)">' +
+      '<td class="phone"><a href="' + detailUrl + '" class="phone-link" onclick="event.stopPropagation()">' + escapeHtml(s.phone) + '</a></td>' +
       '<td>' + (escapeHtml(s.profile_name) || '<span class="muted">—</span>') + '</td>' +
       '<td>' + renderBadge(s.state) + '</td>' +
       '<td>' + formatDate(s.first_contact_at) + '</td>' +
       '<td>' + (s.last_delivery_at ? formatDate(s.last_delivery_at) : '<span class="muted">—</span>') + '</td>' +
       '<td>' + (escapeHtml(s.internal_note) || '<span class="muted">—</span>') + '</td>' +
-      '<td>' + renderActions(s) + '</td>' +
+      '<td class="actions-cell" onclick="event.stopPropagation()">' + renderActions(s) + '</td>' +
+      '<td onclick="event.stopPropagation()"><a href="' + detailUrl + '" class="view-link">عرض ←</a></td>' +
     '</tr>';
   }).join('');
 
@@ -680,8 +691,14 @@ function renderTable(subs, total) {
     '<div style="overflow-x:auto"><table>' +
     '<thead><tr>' +
       '<th>الهاتف</th><th>الاسم</th><th>الحالة</th>' +
-      '<th>أول تواصل</th><th>آخر إرسال</th><th>ملاحظة</th><th>إجراءات</th>' +
+      '<th>أول تواصل</th><th>آخر إرسال</th><th>ملاحظة</th><th>إجراءات</th><th></th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function openDetail(phone, event) {
+  // Only navigate if not clicking on an action button or link
+  if (event.target.tagName === 'BUTTON' || event.target.tagName === 'A') return;
+  location.href = '/admin/subscribers/' + encodeURIComponent(phone);
 }
 
 function renderBadge(state) {
