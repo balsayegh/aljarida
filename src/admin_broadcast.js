@@ -4,6 +4,9 @@
  * Date logic: Aljarida.com publishes tomorrow's edition the previous evening
  * (typically after 8 PM Kuwait time). Admin panel defaults to next publishing day
  * but admin can override both the date and the PDF URL for special cases.
+ *
+ * v2: Subscribers with expired subscriptions are automatically excluded
+ *     (except pilot plan which never expires).
  */
 
 import { sendDailyDeliveryTemplate } from './whatsapp.js';
@@ -78,15 +81,22 @@ export async function handleBroadcast(request, env, ctx) {
       return jsonResponse({ error: `Could not reach PDF URL: ${err.message}`, pdfUrl }, 400);
     }
 
+    // v2: Only send to active subscribers whose subscription hasn't expired
+    // Pilot plan is excluded from expiry check
+    const now = Date.now();
     const { results: subscribers } = await env.DB.prepare(
-      `SELECT phone FROM subscribers WHERE state = 'active' ORDER BY phone`
-    ).all();
+      `SELECT phone FROM subscribers
+       WHERE state = 'active'
+         AND (subscription_plan = 'pilot'
+              OR subscription_end_at IS NULL
+              OR subscription_end_at >= ?)
+       ORDER BY phone`
+    ).bind(now).all();
 
     if (subscribers.length === 0) {
-      return jsonResponse({ error: 'No active subscribers', count: 0 }, 400);
+      return jsonResponse({ error: 'No active subscribers (all may be expired)', count: 0 }, 400);
     }
 
-    const now = Date.now();
     const broadcastResult = await env.DB.prepare(
       `INSERT INTO broadcasts
         (date_string, pdf_url, headline_1, headline_2, headline_3, target_count, status, started_at)

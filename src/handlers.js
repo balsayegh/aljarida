@@ -1,9 +1,14 @@
 /**
  * Message Handlers — business logic for incoming WhatsApp messages.
+ *
+ * v2 additions:
+ *   - Phone change verification button responses (تأكيد/رفض)
+ *   - Renewal reminder button responses (تجديد الاشتراك/المساعدة)
  */
 
 import { sendTextMessage, sendOfferWithButtons, sendPaymentPrompt } from './whatsapp.js';
 import { messages as t } from './templates.js';
+import { handleTemplateButtonReply } from './webhook_v2.js';
 
 export async function handleInboundMessage(message, contacts, env) {
   const from = message.from;
@@ -22,6 +27,19 @@ export async function handleInboundMessage(message, contacts, env) {
   });
 
   await updateCSWWindow(env.DB, from, timestamp);
+
+  // v2: Check for template button replies (phone change / renewal reminders)
+  // These need to be checked BEFORE state-based routing because they apply
+  // regardless of subscriber state.
+  if (message.type === 'interactive') {
+    const buttonReply = message.interactive?.button_reply;
+    if (buttonReply) {
+      const handled = await handleTemplateButtonReply(
+        env, from, buttonReply.id, buttonReply.title
+      );
+      if (handled) return;
+    }
+  }
 
   const subscriber = await getOrCreateSubscriber(env.DB, from, contacts);
 
@@ -157,6 +175,14 @@ async function handleOptOut(env, phone, subscriber) {
   await env.DB.prepare(
     `UPDATE subscribers SET state = ?, unsubscribed_at = ? WHERE phone = ?`
   ).bind('unsubscribed', now, phone).run();
+
+  // v2: Log event
+  try {
+    await env.DB.prepare(
+      `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
+       VALUES (?, 'unsubscribed', '{}', 'subscriber', ?)`
+    ).bind(phone, now).run();
+  } catch {}
 
   await sendTextMessage(env, phone, t.optOutConfirmation);
 }

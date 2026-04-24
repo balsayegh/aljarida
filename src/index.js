@@ -4,6 +4,7 @@
 
 import { handleInboundMessage, handleStatusUpdate } from './handlers.js';
 import { handleAdminRequest } from './admin.js';
+import { handleScheduledTask } from './cron.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -29,6 +30,14 @@ export default {
     }
 
     return new Response('Not found', { status: 404 });
+  },
+
+  /**
+   * Scheduled handler — called by Cloudflare Cron Triggers.
+   * Runs daily at 10 AM Kuwait time (7 AM UTC) per wrangler.toml.
+   */
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(handleScheduledTask(event, env, ctx));
   },
 };
 

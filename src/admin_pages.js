@@ -9,7 +9,7 @@
  *   - URL validation (starts with https://)
  */
 
-const SHARED_CSS = `
+export const SHARED_CSS = `
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
@@ -200,7 +200,7 @@ const SHARED_CSS = `
   }
 `;
 
-function pageShell(title, activePage, bodyHtml) {
+export function pageShell(title, activePage, bodyHtml) {
   return `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>

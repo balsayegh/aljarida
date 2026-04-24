@@ -4,7 +4,7 @@
  * Pages:
  *   GET  /admin                      → dashboard (stats + send today)
  *   GET  /admin/subscribers          → subscriber list
- *   GET  /admin/subscribers/:phone   → single subscriber detail (NOT YET)
+ *   GET  /admin/subscribers/:phone   → single subscriber detail
  *   GET  /admin/broadcasts           → broadcast history
  *   GET  /admin/broadcasts/:id       → broadcast detail with per-recipient status
  *
@@ -19,11 +19,28 @@
  *   POST /admin/api/broadcast
  *   GET  /admin/api/broadcasts
  *   GET  /admin/api/broadcasts/:id
+ *
+ *   [v2 additions]
+ *   GET  /admin/api/subscribers/:phone         → full detail with events + payments
+ *   POST /admin/api/subscribers/:phone/extend  → extend subscription
+ *   POST /admin/api/subscribers/:phone/change-phone  → change phone with verification
+ *   POST /admin/api/subscribers/:phone/tags    → add tag
+ *   DELETE /admin/api/subscribers/:phone/tags/:tag  → remove tag
+ *   POST /admin/api/subscribers/:phone/plan    → change plan type
+ *   POST /admin/api/subscribers/:phone/payments → record manual payment
+ *   GET  /admin/api/subscribers/:phone/payments → list payments
+ *   GET  /admin/api/subscribers/:phone/events  → event history
  */
 
 import { renderLoginPage } from './admin_pages.js';
 import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage } from './admin_pages.js';
+import { renderSubscriberDetailPage } from './admin_subscriber_detail.js';
 import { handleBroadcast } from './admin_broadcast.js';
+import {
+  getSubscriberDetail, extendSubscriptionAction, changePhoneAction,
+  addTagAction, removeTagAction, changePlanAction, addPaymentAction,
+  getEvents, getPayments,
+} from './admin_api_v2.js';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
@@ -59,6 +76,11 @@ export async function handleAdminRequest(request, env, ctx, url) {
     if (path === '/admin/subscribers') return htmlResponse(renderSubscribersPage());
     if (path === '/admin/broadcasts') return htmlResponse(renderBroadcastsPage());
 
+    // Subscriber detail: /admin/subscribers/:phone (v2)
+    // Note: must come AFTER /admin/subscribers exact match above
+    const subDetailMatch = path.match(/^\/admin\/subscribers\/([^\/]+)$/);
+    if (subDetailMatch) return htmlResponse(renderSubscriberDetailPage(decodeURIComponent(subDetailMatch[1])));
+
     // Broadcast detail: /admin/broadcasts/123
     const bcMatch = path.match(/^\/admin\/broadcasts\/(\d+)$/);
     if (bcMatch) return htmlResponse(renderBroadcastDetailPage(bcMatch[1]));
@@ -77,15 +99,58 @@ export async function handleAdminRequest(request, env, ctx, url) {
     return handleApiSubscriberAdd(request, env);
   }
 
-  // PATCH /admin/api/subscribers/:phone
-  const patchMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)$/);
-  if (patchMatch && method === 'PATCH') {
-    return handleApiSubscriberUpdate(request, env, patchMatch[1]);
-  }
-  if (patchMatch && method === 'DELETE') {
-    return handleApiSubscriberDelete(env, patchMatch[1]);
+  // v2 detail endpoint — GET /admin/api/subscribers/:phone
+  const apiDetailMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)$/);
+  if (apiDetailMatch && method === 'GET') {
+    return getSubscriberDetail(request, env, apiDetailMatch[1]);
   }
 
+  // PATCH/DELETE /admin/api/subscribers/:phone
+  if (apiDetailMatch && method === 'PATCH') {
+    return handleApiSubscriberUpdate(request, env, apiDetailMatch[1]);
+  }
+  if (apiDetailMatch && method === 'DELETE') {
+    return handleApiSubscriberDelete(env, apiDetailMatch[1]);
+  }
+
+  // v2 action endpoints
+  const apiExtendMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/extend$/);
+  if (apiExtendMatch && method === 'POST') {
+    return extendSubscriptionAction(request, env, apiExtendMatch[1]);
+  }
+
+  const apiChangePhoneMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/change-phone$/);
+  if (apiChangePhoneMatch && method === 'POST') {
+    return changePhoneAction(request, env, apiChangePhoneMatch[1]);
+  }
+
+  const apiTagsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/tags$/);
+  if (apiTagsMatch && method === 'POST') {
+    return addTagAction(request, env, apiTagsMatch[1]);
+  }
+
+  const apiTagRemoveMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/tags\/(.+)$/);
+  if (apiTagRemoveMatch && method === 'DELETE') {
+    return removeTagAction(request, env, apiTagRemoveMatch[1], decodeURIComponent(apiTagRemoveMatch[2]));
+  }
+
+  const apiPlanMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/plan$/);
+  if (apiPlanMatch && method === 'POST') {
+    return changePlanAction(request, env, apiPlanMatch[1]);
+  }
+
+  const apiPaymentsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/payments$/);
+  if (apiPaymentsMatch) {
+    if (method === 'POST') return addPaymentAction(request, env, apiPaymentsMatch[1]);
+    if (method === 'GET') return getPayments(request, env, apiPaymentsMatch[1]);
+  }
+
+  const apiEventsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/events$/);
+  if (apiEventsMatch && method === 'GET') {
+    return getEvents(request, env, apiEventsMatch[1]);
+  }
+
+  // Broadcast endpoints
   if (path === '/admin/api/broadcast' && method === 'POST') {
     return handleBroadcast(request, env, ctx);
   }
@@ -262,9 +327,17 @@ async function handleApiSubscriberAdd(request, env) {
     const now = Date.now();
     const cleanPhone = phone.replace(/\D/g, '');
 
+    // Detect pilot/test subscribers from note and auto-tag
+    const isPilot = note && /pilot|test|تجريب/i.test(note);
+    const plan = isPilot ? 'pilot' : 'monthly';
+    const tags = isPilot ? '["pilot"]' : '[]';
+    const endAt = isPilot
+      ? now + 365 * 24 * 60 * 60 * 1000  // pilot: 1 year
+      : now + 30 * 24 * 60 * 60 * 1000;  // monthly: 30 days grace
+
     await env.DB.prepare(
-      `INSERT INTO subscribers (phone, state, tier, profile_name, internal_note, first_contact_at, activated_at, updated_at)
-       VALUES (?, 'active', 'standard', ?, ?, ?, ?, ?)
+      `INSERT INTO subscribers (phone, state, tier, profile_name, internal_note, first_contact_at, activated_at, updated_at, subscription_plan, subscription_start_at, subscription_end_at, tags)
+       VALUES (?, 'active', 'standard', ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(phone) DO UPDATE SET
          state = 'active',
          profile_name = COALESCE(?, profile_name),
@@ -273,6 +346,7 @@ async function handleApiSubscriberAdd(request, env) {
          updated_at = ?`
     ).bind(
       cleanPhone, name || null, note || null, now, now, now,
+      plan, now, endAt, tags,
       name || null, note || null, now, now
     ).run();
 
@@ -280,6 +354,12 @@ async function handleApiSubscriberAdd(request, env) {
       `INSERT INTO consent_log (phone, consent_type, consent_text, timestamp)
        VALUES (?, 'pilot_manual_add', 'Manually added by admin', ?)`
     ).bind(cleanPhone, now).run();
+
+    // Log event
+    await env.DB.prepare(
+      `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
+       VALUES (?, 'activated', ?, 'admin', ?)`
+    ).bind(cleanPhone, JSON.stringify({ plan, manual_add: true }), now).run();
 
     return jsonResponse({ success: true, phone: cleanPhone });
   } catch (err) {
@@ -339,6 +419,16 @@ async function handleApiSubscriberUpdate(request, env, phone) {
     await env.DB.prepare(
       `UPDATE subscribers SET ${updates.join(', ')} WHERE phone = ?`
     ).bind(...values).run();
+
+    // Log state changes
+    if (state) {
+      try {
+        await env.DB.prepare(
+          `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
+           VALUES (?, ?, '{}', 'admin', ?)`
+        ).bind(phone, state === 'paused' ? 'paused' : state === 'active' ? 'resumed' : state === 'unsubscribed' ? 'unsubscribed' : 'state_changed', Date.now()).run();
+      } catch {}
+    }
 
     return jsonResponse({ success: true });
   } catch (err) {
