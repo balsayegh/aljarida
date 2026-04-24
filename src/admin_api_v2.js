@@ -325,7 +325,7 @@ export async function addPaymentAction(request, env, phone) {
   try {
     const result = await recordPayment(
       env, phone, parseFloat(amount_kwd), method,
-      reference || null, notes || null, plan || PLAN_MONTHLY
+      reference || null, notes || null, plan || PLAN_YEARLY
     );
     return jsonResponse({ success: true, ...result });
   } catch (err) {

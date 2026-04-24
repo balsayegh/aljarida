@@ -138,8 +138,7 @@ async function handleRenewalYes(env, phone) {
     const { sendFreeformMessage } = await import('./whatsapp.js');
     await sendFreeformMessage(env, phone,
       'ممتاز! للتجديد:\n\n' +
-      '💰 الاشتراك الشهري: 2.5 د.ك\n' +
-      '📅 الاشتراك السنوي: 25 د.ك (وفّر 5 د.ك)\n\n' +
+      '💰 الاشتراك السنوي: 12 د.ك\n\n' +
       '[رابط الدفع سيظهر هنا قريباً]\n\n' +
       'هل تحتاج مساعدة؟ فقط اكتب استفسارك.'
     );

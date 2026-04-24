@@ -81,7 +81,7 @@ export function renderSubscriberDetailPage(phone) {
     <div class="grid-2">
       <div>
         <label>المبلغ (د.ك)</label>
-        <input type="number" id="paymentAmount" step="0.001" value="2.5" min="0">
+        <input type="number" id="paymentAmount" step="0.001" value="12" min="0">
       </div>
       <div>
         <label>طريقة الدفع</label>
@@ -97,8 +97,7 @@ export function renderSubscriberDetailPage(phone) {
     </div>
     <label>الخطة</label>
     <select id="paymentPlan">
-      <option value="monthly">شهري</option>
-      <option value="yearly">سنوي</option>
+      <option value="yearly">سنوي (12 د.ك)</option>
     </select>
     <label>المرجع (اختياري)</label>
     <input type="text" id="paymentReference" placeholder="رقم العملية / ملاحظة">
@@ -138,8 +137,7 @@ export function renderSubscriberDetailPage(phone) {
     <h2>تغيير خطة الاشتراك</h2>
     <label>الخطة</label>
     <select id="planSelect">
-      <option value="monthly">شهري (2.5 د.ك)</option>
-      <option value="yearly">سنوي (25 د.ك)</option>
+      <option value="yearly">سنوي (12 د.ك)</option>
       <option value="pilot">تجريبي (بدون انتهاء)</option>
       <option value="gift">هدية (مدة مخصصة)</option>
     </select>
@@ -232,7 +230,7 @@ function render(d) {
   if (sub.profile_name) html += '<div class="detail-name">' + escHtml(sub.profile_name) + '</div>';
   html += '<div class="detail-badges">';
   html += '<span class="badge badge-' + sub.state + '">' + (stateLabels[sub.state] || sub.state) + '</span>';
-  html += '<span class="badge badge-' + (sub.subscription_plan || 'monthly') + '">' + (planLabels[sub.subscription_plan] || sub.subscription_plan || '—') + '</span>';
+  html += '<span class="badge badge-' + (sub.subscription_plan || 'yearly') + '">' + (planLabels[sub.subscription_plan] || sub.subscription_plan || '—') + '</span>';
   (sub.tags || []).forEach(function(t) {
     html += '<span class="tag-chip">' + escHtml(t) + ' <span class="x" onclick="removeTag(\\''+ encodeURIComponent(t) +'\\')">×</span></span>';
   });
@@ -283,7 +281,7 @@ function render(d) {
   html += '<button class="primary small" onclick="openModal(\\'extendModal\\')">تمديد الاشتراك</button>';
   html += '<button class="primary small" onclick="openModal(\\'paymentModal\\')">إضافة دفعة</button>';
   html += '<button class="secondary small" onclick="openPhoneChange()">تغيير الرقم</button>';
-  html += '<button class="secondary small" onclick="openModal(\\'planModal\\'); document.getElementById(\\'planSelect\\').value = \\''+ (sub.subscription_plan || 'monthly') +'\\';">تغيير الخطة</button>';
+  html += '<button class="secondary small" onclick="openModal(\\'planModal\\'); document.getElementById(\\'planSelect\\').value = \\''+ (sub.subscription_plan || 'yearly') +'\\';">تغيير الخطة</button>';
   html += '<button class="secondary small" onclick="openModal(\\'tagModal\\')">إضافة وسم</button>';
   if (sub.state === 'active') html += '<button class="secondary small" onclick="setState(\\'paused\\')">تعليق</button>';
   if (sub.state === 'paused') html += '<button class="primary small" onclick="setState(\\'active\\')">تفعيل</button>';

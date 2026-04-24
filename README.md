@@ -1,140 +1,95 @@
-# AlJarida v2 — Integrated deploy package
+# AlJarida Pricing Update — Yearly Only (12 KWD/year)
 
-Everything wired up. Just copy files and deploy.
+## What changed
 
-## What's in this zip
+- **Pricing:** Now 12 KWD/year (was 2.5 KWD/month)
+- **Plans offered:** Yearly only (monthly removed from new signups)
+- **Pilot and gift plans:** Unchanged
+- **Default plan for new subscribers:** yearly (was monthly)
 
-- **wrangler.toml** — updated with cron trigger
-- **src/index.js** — updated with scheduled handler
-- **src/admin.js** — updated with v2 routes for detail page and new APIs
-- **src/admin_broadcast.js** — updated to filter expired subscribers
-- **src/handlers.js** — updated with v2 button routing
-- **src/subscription.js** — NEW (lifecycle logic)
-- **src/whatsapp_v2.js** — NEW (template senders)
-- **src/cron.js** — NEW (daily scheduled task)
-- **src/admin_api_v2.js** — NEW (API endpoints)
-- **src/admin_subscriber_detail.js** — NEW (detail page UI)
-- **src/webhook_v2.js** — NEW (button responders)
+## Files to replace
+
+Drop these 6 files into your `src/` directory:
+
+1. `src/templates.js` — Updated offer and payment messages with new price
+2. `src/subscription.js` — Pricing constants updated to 12 KWD yearly
+3. `src/admin.js` — Default plan for new subscribers is now yearly
+4. `src/admin_api_v2.js` — Default payment plan is yearly
+5. `src/admin_subscriber_detail.js` — Payment form defaults to 12 KWD, plan dropdown hides monthly
+6. `src/webhook_v2.js` — Renewal help message shows yearly-only pricing
 
 ## Deployment
 
-### Step 1: Extract over your project
-
-Backup first!
-
 ```bash
 cd ~/path/to/aljarida-whatsapp
-cp -r src src.backup
-cp wrangler.toml wrangler.toml.backup
 
-# Extract this zip OVER your project
-unzip -o /path/to/aljarida-v2-integrated.zip
-```
+# Backup current files (just in case)
+cp -r src src.backup-pricing
 
-### Step 2: One manual edit in admin_pages.js
+# Extract and overlay
+unzip -o /path/to/aljarida-pricing-update.zip
 
-The only file I couldn't replace (because I don't have your version). Add `export` to two lines:
+# Syntax check
+for f in src/*.js; do node --check "$f" && echo "$f OK"; done
 
-```bash
-# On Mac (GNU sed syntax may differ — use your editor if this fails):
-sed -i '' 's/^const SHARED_CSS = /export const SHARED_CSS = /' src/admin_pages.js
-sed -i '' 's/^function pageShell(/export function pageShell(/' src/admin_pages.js
-
-# Verify the changes:
-grep -n "^export const SHARED_CSS\|^export function pageShell" src/admin_pages.js
-```
-
-Expected output:
-```
-12:export const SHARED_CSS = `
-203:export function pageShell(title, activePage, bodyHtml) {
-```
-
-If sed didn't work, open `src/admin_pages.js` in your editor and:
-- Line 12: change `const SHARED_CSS =` to `export const SHARED_CSS =`
-- Line 203: change `function pageShell(` to `export function pageShell(`
-
-### Step 3: Also add detail page link to subscribers list (optional)
-
-For convenience, make phone numbers clickable to open the detail page.
-
-In `src/admin_pages.js`, find the `renderSubscribersPage()` function and look for the line inside the JavaScript section that renders each subscriber row. It has something like:
-
-```javascript
-'<td class="phone">' + escapeHtml(s.phone) + '</td>' +
-```
-
-Change it to:
-
-```javascript
-'<td class="phone"><a href="/admin/subscribers/' + encodeURIComponent(s.phone) + '">' + escapeHtml(s.phone) + '</a></td>' +
-```
-
-Optional — without this, you can still reach detail pages by typing `/admin/subscribers/PHONENUMBER` in the URL.
-
-### Step 4: Syntax check
-
-```bash
-for f in src/*.js; do echo "=== $f ==="; node --check "$f" && echo "OK" || echo "FAIL"; done
-```
-
-All should say OK.
-
-### Step 5: Dry-run deploy
-
-```bash
-npx wrangler deploy --dry-run
-```
-
-Should succeed without errors.
-
-### Step 6: Deploy
-
-```bash
+# Deploy
 git add -A
-git commit -m "Add subscription management v2"
+git commit -m "Update pricing to 12 KWD/year (yearly only)"
 git push
 npm run deploy
 ```
 
-### Step 7: Verify
+## Still to do — Meta template update
 
-**Cron:**
-- Cloudflare Dashboard → Workers & Pages → aljarida-whatsapp → Triggers
-- Should see Cron Triggers: `0 7 * * *`
+The renewal reminder template (`aljarida_renewal_reminder_ar`) currently says
+"2.5 د.ك / شهرياً" and needs to be updated.
 
-**Detail page:**
-- Go to `https://aljarida-whatsapp.mnakh.workers.dev/admin/subscribers/YOUR_PHONE`
-- Should load with stats, action buttons, history sections
+### Steps:
 
-**Try actions:**
-- Extend your subscription by 7 days
-- Add a pilot tag
-- Check payment history (should be empty)
+1. Go to Meta Business Manager → WhatsApp Manager → Templates
+2. Find `aljarida_renewal_reminder_ar`
+3. Click Edit
+4. Change the body to:
 
-## Testing the renewal reminder (careful)
+```
+مرحباً {{1}}،
 
-Before manually triggering the cron, check who would receive reminders:
+ينتهي اشتراكك في "جريدة الجريدة — النسخة الرقمية" خلال {{2}}.
 
+للاستمرار في استلام العدد اليومي، يُرجى تجديد اشتراكك.
+
+💰 12 د.ك / سنوياً
+```
+
+5. Submit for re-approval (1-3 days wait)
+6. Keep the same category (MARKETING) and buttons (تجديد الاشتراك, المساعدة)
+
+Until Meta approves the updated template, renewal reminders will still show
+the old price. The current pilot won't be affected because pilot subscribers
+don't receive renewal reminders.
+
+## Note on legacy subscribers
+
+Any existing subscribers with `subscription_plan = 'monthly'` still work fine —
+they just show "شهري" in the badge on the detail page.
+
+You mentioned you'll manually convert them via admin. To do this for each one:
+1. Open their detail page: `/admin/subscribers/PHONE`
+2. Click "تغيير الخطة"
+3. Select "سنوي (12 د.ك)"
+4. Save
+
+Or bulk via SQL:
 ```sql
-SELECT phone, subscription_end_at, subscription_plan
-FROM subscribers
-WHERE state = 'active'
-  AND subscription_plan != 'pilot'
-  AND subscription_end_at BETWEEN
-    (unixepoch() + 6.5*86400)*1000 AND (unixepoch() + 7.5*86400)*1000;
+-- Convert all monthly subscribers to yearly with same end date
+UPDATE subscribers
+SET subscription_plan = 'yearly'
+WHERE subscription_plan = 'monthly';
 ```
 
-If the list has unexpected users, adjust their `subscription_end_at` first.
+## Verification after deploy
 
-Then in Cloudflare Dashboard → Triggers → click Trigger next to the cron to run manually.
-
-## Rollback
-
-If something goes wrong:
-
-```bash
-cp -r src.backup/* src/
-cp wrangler.toml.backup wrangler.toml
-npm run deploy
-```
+1. Visit admin dashboard — still loads ✅
+2. Open subscriber detail page — plan dropdown shows only yearly/pilot/gift ✅
+3. Click "إضافة دفعة" — defaults to 12 KWD ✅
+4. No code errors in browser console ✅

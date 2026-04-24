@@ -49,23 +49,19 @@ export async function handleAdminRequest(request, env, ctx, url) {
   const path = url.pathname;
   const method = request.method;
 
-  // Login endpoint (no auth required)
   if (path === '/admin/login' && method === 'POST') {
     return handleLogin(request, env);
   }
 
-  // All other admin routes require authentication
   const isAuthed = await verifySession(request, env);
 
   if (!isAuthed) {
-    // Redirect to login page for HTML requests
     if (method === 'GET' && (path === '/admin' || path.startsWith('/admin/subscribers') || path.startsWith('/admin/broadcasts'))) {
       return htmlResponse(renderLoginPage());
     }
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  // Logout
   if (path === '/admin/logout' && method === 'POST') {
     return handleLogout();
   }
@@ -76,12 +72,9 @@ export async function handleAdminRequest(request, env, ctx, url) {
     if (path === '/admin/subscribers') return htmlResponse(renderSubscribersPage());
     if (path === '/admin/broadcasts') return htmlResponse(renderBroadcastsPage());
 
-    // Subscriber detail: /admin/subscribers/:phone (v2)
-    // Note: must come AFTER /admin/subscribers exact match above
     const subDetailMatch = path.match(/^\/admin\/subscribers\/([^\/]+)$/);
     if (subDetailMatch) return htmlResponse(renderSubscriberDetailPage(decodeURIComponent(subDetailMatch[1])));
 
-    // Broadcast detail: /admin/broadcasts/123
     const bcMatch = path.match(/^\/admin\/broadcasts\/(\d+)$/);
     if (bcMatch) return htmlResponse(renderBroadcastDetailPage(bcMatch[1]));
   }
@@ -99,13 +92,10 @@ export async function handleAdminRequest(request, env, ctx, url) {
     return handleApiSubscriberAdd(request, env);
   }
 
-  // v2 detail endpoint — GET /admin/api/subscribers/:phone
   const apiDetailMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)$/);
   if (apiDetailMatch && method === 'GET') {
     return getSubscriberDetail(request, env, apiDetailMatch[1]);
   }
-
-  // PATCH/DELETE /admin/api/subscribers/:phone
   if (apiDetailMatch && method === 'PATCH') {
     return handleApiSubscriberUpdate(request, env, apiDetailMatch[1]);
   }
@@ -113,7 +103,6 @@ export async function handleAdminRequest(request, env, ctx, url) {
     return handleApiSubscriberDelete(env, apiDetailMatch[1]);
   }
 
-  // v2 action endpoints
   const apiExtendMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/extend$/);
   if (apiExtendMatch && method === 'POST') {
     return extendSubscriptionAction(request, env, apiExtendMatch[1]);
@@ -150,7 +139,6 @@ export async function handleAdminRequest(request, env, ctx, url) {
     return getEvents(request, env, apiEventsMatch[1]);
   }
 
-  // Broadcast endpoints
   if (path === '/admin/api/broadcast' && method === 'POST') {
     return handleBroadcast(request, env, ctx);
   }
@@ -306,7 +294,6 @@ async function handleApiSubscribersList(request, env) {
 
   const { results } = await env.DB.prepare(query).bind(...params).all();
 
-  // Also return total count of ALL subscribers (unfiltered) for the header
   const totalCount = await env.DB.prepare('SELECT COUNT(*) as c FROM subscribers').first();
 
   return jsonResponse({
@@ -328,12 +315,11 @@ async function handleApiSubscriberAdd(request, env) {
     const cleanPhone = phone.replace(/\D/g, '');
 
     // Detect pilot/test subscribers from note and auto-tag
+    // Default paid plan is yearly (12 KWD/year, 365 days)
     const isPilot = note && /pilot|test|تجريب/i.test(note);
-    const plan = isPilot ? 'pilot' : 'monthly';
+    const plan = isPilot ? 'pilot' : 'yearly';
     const tags = isPilot ? '["pilot"]' : '[]';
-    const endAt = isPilot
-      ? now + 365 * 24 * 60 * 60 * 1000  // pilot: 1 year
-      : now + 30 * 24 * 60 * 60 * 1000;  // monthly: 30 days grace
+    const endAt = now + 365 * 24 * 60 * 60 * 1000;  // 365 days for both pilot and yearly
 
     await env.DB.prepare(
       `INSERT INTO subscribers (phone, state, tier, profile_name, internal_note, first_contact_at, activated_at, updated_at, subscription_plan, subscription_start_at, subscription_end_at, tags)
@@ -355,11 +341,12 @@ async function handleApiSubscriberAdd(request, env) {
        VALUES (?, 'pilot_manual_add', 'Manually added by admin', ?)`
     ).bind(cleanPhone, now).run();
 
-    // Log event
-    await env.DB.prepare(
-      `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
-       VALUES (?, 'activated', ?, 'admin', ?)`
-    ).bind(cleanPhone, JSON.stringify({ plan, manual_add: true }), now).run();
+    try {
+      await env.DB.prepare(
+        `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
+         VALUES (?, 'activated', ?, 'admin', ?)`
+      ).bind(cleanPhone, JSON.stringify({ plan, manual_add: true }), now).run();
+    } catch {}
 
     return jsonResponse({ success: true, phone: cleanPhone });
   } catch (err) {
@@ -420,7 +407,6 @@ async function handleApiSubscriberUpdate(request, env, phone) {
       `UPDATE subscribers SET ${updates.join(', ')} WHERE phone = ?`
     ).bind(...values).run();
 
-    // Log state changes
     if (state) {
       try {
         await env.DB.prepare(

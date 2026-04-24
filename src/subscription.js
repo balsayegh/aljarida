@@ -1,18 +1,26 @@
 /**
  * Subscription lifecycle utilities.
  * Handles plan logic, period calculations, expiry checks, and event logging.
+ *
+ * Pricing model (effective launch):
+ *   - yearly: 12 KWD/year (the only paid plan)
+ *   - pilot: free, 1 year (for internal testing)
+ *   - gift: free, custom duration (for promotions)
+ *
+ * Note: 'monthly' constant retained for backward compatibility with existing
+ * records in the database; not offered as a new subscription option.
  */
 
 // Plan types
-export const PLAN_MONTHLY = 'monthly';
+export const PLAN_MONTHLY = 'monthly';  // deprecated — kept for legacy records
 export const PLAN_YEARLY = 'yearly';
 export const PLAN_PILOT = 'pilot';
 export const PLAN_GIFT = 'gift';
 
 // Pricing (KWD)
 export const PRICING = {
-  monthly: 2.5,
-  yearly: 25,
+  monthly: 0,      // deprecated, not offered
+  yearly: 12,      // the only paid plan
   pilot: 0,
   gift: 0,
 };
@@ -20,10 +28,10 @@ export const PRICING = {
 // Default period durations (milliseconds)
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PERIOD_MS = {
-  monthly: 30 * DAY_MS,
+  monthly: 30 * DAY_MS,  // legacy support
   yearly: 365 * DAY_MS,
-  pilot: 365 * DAY_MS,  // pilot auto-renews yearly but never actually expires
-  gift: 30 * DAY_MS,    // default 30 days for gifts; admin overrides
+  pilot: 365 * DAY_MS,
+  gift: 30 * DAY_MS,     // default; admin overrides with custom days
 };
 
 /**
@@ -33,7 +41,7 @@ export function calculateEndAt(startAt, plan, customDurationDays = null) {
   if (customDurationDays !== null && customDurationDays > 0) {
     return startAt + customDurationDays * DAY_MS;
   }
-  const periodMs = PERIOD_MS[plan] || PERIOD_MS.monthly;
+  const periodMs = PERIOD_MS[plan] || PERIOD_MS.yearly;
   return startAt + periodMs;
 }
 
@@ -42,7 +50,6 @@ export function calculateEndAt(startAt, plan, customDurationDays = null) {
  * Returns the new end_at timestamp.
  */
 export function extendSubscription(currentEndAt, daysToAdd) {
-  // If subscription already expired, extend from now
   const now = Date.now();
   const base = currentEndAt && currentEndAt > now ? currentEndAt : now;
   return base + daysToAdd * DAY_MS;
@@ -112,9 +119,9 @@ export async function logEvent(env, phone, eventType, details = {}, performedBy 
 
 /**
  * Activate a subscriber with a given plan.
- * Sets subscription_start_at, subscription_end_at, and state='active'.
+ * Defaults to yearly (the only offered paid plan).
  */
-export async function activateSubscriber(env, phone, plan = PLAN_MONTHLY, customDays = null, performedBy = 'admin') {
+export async function activateSubscriber(env, phone, plan = PLAN_YEARLY, customDays = null, performedBy = 'admin') {
   const now = Date.now();
   const endAt = calculateEndAt(now, plan, customDays);
 
@@ -133,30 +140,26 @@ export async function activateSubscriber(env, phone, plan = PLAN_MONTHLY, custom
 /**
  * Record a manual payment and extend subscription accordingly.
  */
-export async function recordPayment(env, phone, amountKwd, method, reference, notes, plan = PLAN_MONTHLY, performedBy = 'admin') {
+export async function recordPayment(env, phone, amountKwd, method, reference, notes, plan = PLAN_YEARLY, performedBy = 'admin') {
   const now = Date.now();
 
-  // Get current subscriber
   const subscriber = await env.DB.prepare(
     `SELECT * FROM subscribers WHERE phone = ?`
   ).bind(phone).first();
 
   if (!subscriber) throw new Error('Subscriber not found');
 
-  // Calculate period
   const periodStart = subscriber.subscription_end_at && subscriber.subscription_end_at > now
-    ? subscriber.subscription_end_at  // extend from current end
-    : now;  // or start fresh if expired
+    ? subscriber.subscription_end_at
+    : now;
   const periodEnd = calculateEndAt(periodStart, plan);
 
-  // Insert payment record
   await env.DB.prepare(
     `INSERT INTO payments
       (phone, amount_kwd, payment_date, payment_method, reference, period_start, period_end, plan, status, notes, created_by, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)`
   ).bind(phone, amountKwd, now, method, reference, periodStart, periodEnd, plan, notes, performedBy, now).run();
 
-  // Update subscriber
   const newPaymentCount = (subscriber.payment_count || 0) + 1;
   const newTotalPaid = (subscriber.total_paid_kwd || 0) + amountKwd;
 
@@ -241,6 +244,6 @@ export function parsePreviousPhones(json) {
 export function maskPhone(phone) {
   if (!phone || phone.length < 4) return phone;
   const last4 = phone.slice(-4);
-  const prefix = phone.slice(0, 3);  // country code
+  const prefix = phone.slice(0, 3);
   return `${prefix} •••• ${last4}`;
 }
