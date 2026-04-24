@@ -57,7 +57,8 @@ export async function handleAdminRequest(request, env, ctx, url) {
   const isAuthed = await verifySession(request, env);
 
   if (!isAuthed) {
-    if (method === 'GET' && (path === '/admin' || path.startsWith('/admin/subscribers') || path.startsWith('/admin/broadcasts'))) {
+    // JSON 401 for API calls; login page for any HTML route (so new pages work without this list)
+    if (method === 'GET' && !path.startsWith('/admin/api/')) {
       return htmlResponse(renderLoginPage());
     }
     return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -314,6 +315,17 @@ async function handleApiSubscriberAdd(request, env) {
 
     const now = Date.now();
     const cleanPhone = phone.replace(/\D/g, '');
+
+    // Don't silently reactivate someone who opted out — Meta compliance & UX.
+    // Admin can explicitly reactivate from the subscriber detail page if intended.
+    const existing = await env.DB.prepare(
+      'SELECT state FROM subscribers WHERE phone = ?'
+    ).bind(cleanPhone).first();
+    if (existing && existing.state === 'unsubscribed') {
+      return jsonResponse({
+        error: 'هذا الرقم سبق أن ألغى الاشتراك. افتح صفحة تفاصيله واضغط "تفعيل" لإعادة تفعيله.'
+      }, 409);
+    }
 
     // Detect pilot/test subscribers from note and auto-tag
     // Default paid plan is yearly (12 KWD/year, 365 days)
