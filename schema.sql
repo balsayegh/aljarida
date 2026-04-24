@@ -1,32 +1,58 @@
--- AlJarida Digital WhatsApp Service — D1 Database Schema
+-- AlJarida Digital WhatsApp Service — D1 Database Schema (canonical)
 --
--- First-time setup:
+-- This file represents the complete, current database structure.
+-- Safe to run against a fresh D1 DB:
 --   wrangler d1 execute aljarida-db --remote --file=schema.sql
 --
--- If upgrading from a previous version, see migrations.sql for incremental changes
+-- For existing databases, see the dated migration files (migrations.sql,
+-- migrations-v2.sql, migration-1/2/3-*.sql). This schema reflects the
+-- resulting shape after all v1 + v2 migrations have been applied.
 
 -- ----------------------------------------------------------------------------
 -- Subscribers
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS subscribers (
-  phone                TEXT PRIMARY KEY,
-  state                TEXT NOT NULL DEFAULT 'new',
-  tier                 TEXT NOT NULL DEFAULT 'standard',
-  profile_name         TEXT,
-  internal_note        TEXT,
-  first_contact_at     INTEGER NOT NULL,
-  yes_at               INTEGER,
-  activated_at         INTEGER,
-  unsubscribed_at      INTEGER,
-  csw_open_until       INTEGER,
-  last_delivery_at     INTEGER,
-  subscription_end_at  INTEGER,
-  updated_at           INTEGER
+  phone                      TEXT PRIMARY KEY,
+  state                      TEXT NOT NULL DEFAULT 'new',
+  tier                       TEXT NOT NULL DEFAULT 'standard',
+  profile_name               TEXT,
+  internal_note              TEXT,
+  first_contact_at           INTEGER NOT NULL,
+  yes_at                     INTEGER,
+  activated_at               INTEGER,
+  unsubscribed_at            INTEGER,
+  csw_open_until             INTEGER,
+  last_delivery_at           INTEGER,
+  updated_at                 INTEGER,
+
+  -- Subscription lifecycle (v2)
+  subscription_plan          TEXT DEFAULT 'yearly',  -- 'yearly', 'pilot', 'gift' (legacy: 'monthly')
+  subscription_start_at      INTEGER,
+  subscription_end_at        INTEGER,
+
+  -- Payment tracking (v2)
+  last_payment_at            INTEGER,
+  last_payment_amount_kwd    REAL,
+  payment_count              INTEGER DEFAULT 0,
+  total_paid_kwd             REAL DEFAULT 0,
+
+  -- Organization (v2)
+  tags                       TEXT,  -- JSON array
+  previous_phones            TEXT,  -- JSON array of {phone, changed_at, reason, changed_to}
+
+  -- Phone change verification (v2)
+  phone_change_pending       TEXT,  -- JSON {old_phone, new_phone, requested_at, expires_at}
+
+  -- Renewal reminders (v2)
+  last_reminder_sent_at      INTEGER,
+  last_reminder_days_before  INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_subscribers_state ON subscribers(state);
 CREATE INDEX IF NOT EXISTS idx_subscribers_csw ON subscribers(csw_open_until);
-CREATE INDEX IF NOT EXISTS idx_subscribers_sub_end ON subscribers(subscription_end_at);
+CREATE INDEX IF NOT EXISTS idx_subs_end_at ON subscribers(subscription_end_at);
+CREATE INDEX IF NOT EXISTS idx_subs_plan ON subscribers(subscription_plan);
+CREATE INDEX IF NOT EXISTS idx_subs_state_plan ON subscribers(state, subscription_plan);
 
 -- ----------------------------------------------------------------------------
 -- Messages (raw inbound/outbound log)
@@ -35,9 +61,9 @@ CREATE TABLE IF NOT EXISTS messages (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   wa_message_id    TEXT UNIQUE,
   phone            TEXT NOT NULL,
-  direction        TEXT NOT NULL,
-  message_type     TEXT NOT NULL,
-  content          TEXT,
+  direction        TEXT NOT NULL,        -- 'inbound' or 'outbound'
+  message_type     TEXT NOT NULL,        -- 'text', 'interactive', 'template', ...
+  content          TEXT,                 -- JSON payload
   created_at       INTEGER NOT NULL
 );
 
@@ -50,8 +76,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_created ON messages(created_at);
 CREATE TABLE IF NOT EXISTS consent_log (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   phone            TEXT NOT NULL,
-  consent_type     TEXT NOT NULL,
-  consent_text     TEXT NOT NULL,
+  consent_type     TEXT NOT NULL,        -- 'subscription_opt_in', 'opt_out', 'pilot_manual_add'
+  consent_text     TEXT NOT NULL,        -- exact message the user saw/sent
   timestamp        INTEGER NOT NULL
 );
 
@@ -59,12 +85,12 @@ CREATE INDEX IF NOT EXISTS idx_consent_phone ON consent_log(phone);
 CREATE INDEX IF NOT EXISTS idx_consent_type ON consent_log(consent_type);
 
 -- ----------------------------------------------------------------------------
--- Message status (delivery/read tracking)
+-- Message status (delivery/read tracking from Meta webhooks)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS message_status (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   wa_message_id    TEXT NOT NULL,
-  status           TEXT NOT NULL,
+  status           TEXT NOT NULL,        -- 'sent', 'delivered', 'read', 'failed'
   timestamp        INTEGER NOT NULL,
   recipient        TEXT,
   error_code       INTEGER,
@@ -79,10 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_message_status_broadcast ON message_status(broadc
 -- ----------------------------------------------------------------------------
 -- Broadcasts (each daily delivery as a unit)
 -- ----------------------------------------------------------------------------
--- Every time an admin clicks "Send", a row is created here.
--- Each individual message sent gets linked back to this broadcast_id
--- so we can show per-broadcast delivery stats.
-
 CREATE TABLE IF NOT EXISTS broadcasts (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
   date_string        TEXT NOT NULL,
@@ -102,18 +124,15 @@ CREATE TABLE IF NOT EXISTS broadcasts (
 CREATE INDEX IF NOT EXISTS idx_broadcasts_started ON broadcasts(started_at DESC);
 
 -- ----------------------------------------------------------------------------
--- Broadcast recipients (link between broadcast and individual message)
+-- Broadcast recipients (per-subscriber delivery status for each broadcast)
 -- ----------------------------------------------------------------------------
--- When a broadcast sends to 50 subscribers, we create 50 rows here.
--- This gives us a clean "per-subscriber delivery status" view.
-
 CREATE TABLE IF NOT EXISTS broadcast_recipients (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   broadcast_id     INTEGER NOT NULL,
   phone            TEXT NOT NULL,
   wa_message_id    TEXT,
   send_status      TEXT NOT NULL,        -- 'sent', 'failed'
-  delivery_status  TEXT,                  -- 'sent', 'delivered', 'read', 'failed' (from webhook)
+  delivery_status  TEXT,                 -- 'sent', 'delivered', 'read', 'failed' (from webhook)
   delivered_at     INTEGER,
   read_at          INTEGER,
   error_message    TEXT,
@@ -125,23 +144,43 @@ CREATE INDEX IF NOT EXISTS idx_br_recipients_phone ON broadcast_recipients(phone
 CREATE INDEX IF NOT EXISTS idx_br_recipients_wa_id ON broadcast_recipients(wa_message_id);
 
 -- ----------------------------------------------------------------------------
--- Payments (placeholder for Piece 2)
+-- Payments (manual entries; payment gateway integration pending)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS payments (
-  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-  phone                TEXT NOT NULL,
-  reference            TEXT UNIQUE,
-  gateway_ref          TEXT,
-  amount_kwd           REAL NOT NULL,
-  currency             TEXT NOT NULL DEFAULT 'KWD',
-  status               TEXT NOT NULL,
-  payment_method       TEXT,
-  created_at           INTEGER NOT NULL,
-  paid_at              INTEGER,
-  subscription_start   INTEGER,
-  subscription_end     INTEGER
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone            TEXT NOT NULL,
+  amount_kwd       REAL NOT NULL,
+  payment_date     INTEGER NOT NULL,
+  payment_method   TEXT,                 -- 'knet', 'visa', 'cash', 'bank_transfer', 'gift', 'manual', 'pilot'
+  reference        TEXT,                 -- transaction ID or admin note
+  period_start     INTEGER NOT NULL,
+  period_end       INTEGER NOT NULL,
+  plan             TEXT,                 -- 'yearly', 'gift', etc.
+  status           TEXT DEFAULT 'completed',
+  notes            TEXT,
+  created_by       TEXT DEFAULT 'admin',
+  created_at       INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone);
-CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
-CREATE INDEX IF NOT EXISTS idx_payments_ref ON payments(reference);
+CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date DESC);
+
+-- ----------------------------------------------------------------------------
+-- Subscription events (lifecycle audit log)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS subscription_events (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone            TEXT NOT NULL,
+  event_type       TEXT NOT NULL,
+  -- Event types: 'subscribed', 'activated', 'paused', 'resumed', 'extended',
+  --              'phone_change_requested', 'phone_change_confirmed', 'phone_change_rejected',
+  --              'phone_change_reverted', 'payment_received', 'plan_changed',
+  --              'reminder_sent', 'auto_paused_expired', 'cancelled', 'unsubscribed',
+  --              'tag_added', 'tag_removed'
+  details          TEXT,                 -- JSON with event-specific data
+  performed_by     TEXT,                 -- 'admin', 'subscriber', 'system', 'cron'
+  created_at       INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_phone ON subscription_events(phone);
+CREATE INDEX IF NOT EXISTS idx_events_created ON subscription_events(created_at DESC);

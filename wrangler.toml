@@ -12,7 +12,6 @@ database_id = "58c39bb5-bc17-478d-86ba-4f2d502ff537"
 
 [vars]
 ALJARIDA_PDF_BASE_URL = "https://www.aljarida.com/uploads/pdf"
-SUBSCRIPTION_PRICE_KWD = "2.5"
 TIMEZONE = "Asia/Kuwait"
 
 # Daily cron — 10 AM Kuwait time (7 AM UTC)
