@@ -1,20 +1,12 @@
 /**
  * WhatsApp template senders — v2 additions.
- * Includes renewal reminders and phone change verification.
- *
- * IMPORTANT: This file should be added alongside your existing whatsapp.js,
- * OR the functions here should be merged into whatsapp.js.
- * For clarity, this is a separate module that imports the shared send function.
+ * Renewal reminders and phone change verification.
  */
 
-const WHATSAPP_API_VERSION = 'v25.0';
+import { GRAPH_API_VERSION } from './whatsapp.js';
 
-/**
- * Low-level template send helper.
- * (Same pattern as existing whatsapp.js; reuse that function if preferred.)
- */
 async function sendTemplate(env, to, templateName, components = []) {
-  const url = `https://graph.facebook.com/${WHATSAPP_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
   const body = {
     messaging_product: 'whatsapp',

@@ -17,7 +17,7 @@ import {
   extendSubscription, activateSubscriber, recordPayment,
   logEvent, addTag, removeTag, parseTags, parsePreviousPhones,
   maskPhone, calculateEndAt, daysRemaining, expiryStatus,
-  PLAN_MONTHLY, PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT,
+  PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT,
 } from './subscription.js';
 import { sendPhoneChangeVerification } from './whatsapp_v2.js';
 import { jsonResponse } from './admin.js';
@@ -283,7 +283,7 @@ export async function removeTagAction(request, env, phone, tag) {
  */
 export async function changePlanAction(request, env, phone) {
   const { plan, custom_days } = await request.json();
-  const validPlans = [PLAN_MONTHLY, PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT];
+  const validPlans = [PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT];
   if (!validPlans.includes(plan)) {
     return jsonResponse({ error: `Plan must be one of: ${validPlans.join(', ')}` }, 400);
   }

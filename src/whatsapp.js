@@ -2,7 +2,7 @@
  * WhatsApp Cloud API wrapper.
  */
 
-const GRAPH_API_VERSION = 'v22.0';
+export const GRAPH_API_VERSION = 'v22.0';
 
 export async function sendTextMessage(env, to, text) {
   return sendMessage(env, {

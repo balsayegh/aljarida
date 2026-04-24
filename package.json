@@ -10,7 +10,6 @@
     "tail": "wrangler tail",
     "db:create": "wrangler d1 create aljarida-db",
     "db:init": "wrangler d1 execute aljarida-db --remote --file=schema.sql",
-    "db:migrate": "wrangler d1 execute aljarida-db --remote --file=migrations.sql",
     "db:init:local": "wrangler d1 execute aljarida-db --local --file=schema.sql",
     "db:query": "wrangler d1 execute aljarida-db --remote --command",
     "db:query:local": "wrangler d1 execute aljarida-db --local --command"
