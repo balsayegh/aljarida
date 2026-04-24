@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS message_status (
 CREATE INDEX IF NOT EXISTS idx_message_status_msg ON message_status(wa_message_id);
 CREATE INDEX IF NOT EXISTS idx_message_status_status ON message_status(status);
 CREATE INDEX IF NOT EXISTS idx_message_status_broadcast ON message_status(broadcast_id);
+-- Idempotency: Meta retries webhook events on 5xx/timeout, so dedupe on (msg_id, status)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_message_status_unique ON message_status(wa_message_id, status);
 
 -- ----------------------------------------------------------------------------
 -- Broadcasts (each daily delivery as a unit)

@@ -84,9 +84,10 @@ export async function handleStatusUpdate(status, env) {
 
   console.log(`Status update: ${waMessageId} → ${statusType}`);
 
-  // Log the raw status event
+  // Log the raw status event. Meta retries webhooks on 5xx/timeout, so we use
+  // INSERT OR IGNORE with a (wa_message_id, status) unique index to dedupe.
   await env.DB.prepare(
-    `INSERT INTO message_status (wa_message_id, status, timestamp, recipient, error_code, error_title)
+    `INSERT OR IGNORE INTO message_status (wa_message_id, status, timestamp, recipient, error_code, error_title)
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(waMessageId, statusType, timestamp, recipient, errorCode, errorTitle).run();
 

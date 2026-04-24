@@ -151,7 +151,7 @@ export async function handleAdminRequest(request, env, ctx, url) {
 
   const broadcastDetailMatch = path.match(/^\/admin\/api\/broadcasts\/(\d+)$/);
   if (broadcastDetailMatch && method === 'GET') {
-    return handleApiBroadcastDetail(env, broadcastDetailMatch[1]);
+    return handleApiBroadcastDetail(env, broadcastDetailMatch[1], request);
   }
 
   return new Response('Not found', { status: 404 });
@@ -461,24 +461,57 @@ async function handleApiBroadcastsList(env) {
   return jsonResponse({ broadcasts: results });
 }
 
-async function handleApiBroadcastDetail(env, id) {
+async function handleApiBroadcastDetail(env, id, request) {
   const broadcast = await env.DB.prepare('SELECT * FROM broadcasts WHERE id = ?').bind(id).first();
   if (!broadcast) return jsonResponse({ error: 'Not found' }, 404);
 
-  const { results: recipients } = await env.DB.prepare(
-    'SELECT * FROM broadcast_recipients WHERE broadcast_id = ? ORDER BY phone'
-  ).bind(id).all();
+  const url = new URL(request.url);
+  const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
+  const perPage = Math.min(500, Math.max(1, parseInt(url.searchParams.get('per_page') || '100', 10)));
+  const offset = (page - 1) * perPage;
+  const filter = url.searchParams.get('filter');  // 'failed' to show only failed sends/deliveries
 
-  const stats = {
-    total: recipients.length,
-    sent: recipients.filter(r => r.send_status === 'sent').length,
-    failed_send: recipients.filter(r => r.send_status === 'failed').length,
-    delivered: recipients.filter(r => r.delivery_status === 'delivered').length,
-    read: recipients.filter(r => r.delivery_status === 'read').length,
-    failed_delivery: recipients.filter(r => r.delivery_status === 'failed').length,
-  };
+  // Aggregate stats via SQL — can't load 10k+ rows into JS memory at scale.
+  const stats = await env.DB.prepare(
+    `SELECT
+       COUNT(*) as total,
+       SUM(CASE WHEN send_status = 'sent' THEN 1 ELSE 0 END) as sent,
+       SUM(CASE WHEN send_status = 'failed' THEN 1 ELSE 0 END) as failed_send,
+       SUM(CASE WHEN delivery_status = 'delivered' THEN 1 ELSE 0 END) as delivered,
+       SUM(CASE WHEN delivery_status = 'read' THEN 1 ELSE 0 END) as read,
+       SUM(CASE WHEN delivery_status = 'failed' THEN 1 ELSE 0 END) as failed_delivery
+     FROM broadcast_recipients
+     WHERE broadcast_id = ?`
+  ).bind(id).first();
 
-  return jsonResponse({ broadcast, recipients, stats });
+  let recipientsSql = 'SELECT * FROM broadcast_recipients WHERE broadcast_id = ?';
+  const bindings = [id];
+  if (filter === 'failed') {
+    recipientsSql += ` AND (send_status = 'failed' OR delivery_status = 'failed')`;
+  }
+  recipientsSql += ' ORDER BY phone LIMIT ? OFFSET ?';
+  bindings.push(perPage, offset);
+
+  const { results: recipients } = await env.DB.prepare(recipientsSql).bind(...bindings).all();
+
+  return jsonResponse({
+    broadcast,
+    recipients,
+    stats: {
+      total: stats?.total || 0,
+      sent: stats?.sent || 0,
+      failed_send: stats?.failed_send || 0,
+      delivered: stats?.delivered || 0,
+      read: stats?.read || 0,
+      failed_delivery: stats?.failed_delivery || 0,
+    },
+    pagination: {
+      page,
+      per_page: perPage,
+      total: stats?.total || 0,
+      total_pages: Math.ceil((stats?.total || 0) / perPage),
+    },
+  });
 }
 
 // ----------------------------------------------------------------------------

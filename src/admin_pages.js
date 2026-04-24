@@ -908,10 +908,15 @@ export function renderBroadcastDetailPage(broadcastId) {
 
 <script>
 const broadcastId = ${JSON.stringify(broadcastId)};
+let currentPage = 1;
+let currentFilter = '';  // '' = all, 'failed' = failed only
+const PER_PAGE = 100;
 
 async function loadDetail() {
   try {
-    const r = await fetch('/admin/api/broadcasts/' + broadcastId);
+    const params = new URLSearchParams({ page: currentPage, per_page: PER_PAGE });
+    if (currentFilter) params.set('filter', currentFilter);
+    const r = await fetch('/admin/api/broadcasts/' + broadcastId + '?' + params);
     const d = await r.json();
 
     if (d.error) {
@@ -922,6 +927,7 @@ async function loadDetail() {
 
     const b = d.broadcast;
     const stats = d.stats;
+    const pag = d.pagination;
     const deliveryRate = stats.total > 0 ? Math.round((stats.delivered / stats.total) * 100) : 0;
     const readRate = stats.total > 0 ? Math.round((stats.read / stats.total) * 100) : 0;
 
@@ -945,6 +951,8 @@ async function loadDetail() {
         '<td class="muted">' + (escapeHtml(r.error_message) || '—') + '</td>' +
       '</tr>';
     }).join('');
+
+    const pagerHtml = renderPager(pag);
 
     document.getElementById('detailContainer').innerHTML =
       '<h1>عدد ' + escapeHtml(b.date_string) + '</h1>' +
@@ -972,19 +980,42 @@ async function loadDetail() {
       '</div>' +
 
       '<div class="card">' +
-        '<h2>المستلمون (' + d.recipients.length + ')</h2>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">' +
+          '<h2 style="margin:0">المستلمون</h2>' +
+          '<div>' +
+            '<button class="' + (currentFilter === '' ? 'primary' : 'secondary') + ' small" onclick="setFilter(\\'\\')">الكل</button> ' +
+            '<button class="' + (currentFilter === 'failed' ? 'primary' : 'secondary') + ' small" onclick="setFilter(\\'failed\\')">الفاشلة فقط</button>' +
+          '</div>' +
+        '</div>' +
         '<p class="muted">ملاحظة: حالة "مقروء" تظهر فقط للمشتركين الذين فعّلوا إيصالات القراءة في إعدادات واتساب.</p>' +
         '<div style="overflow-x:auto"><table>' +
         '<thead><tr>' +
           '<th>الهاتف</th><th>الحالة</th>' +
           '<th>وصل في</th><th>قُرئ في</th><th>خطأ</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
+        pagerHtml +
       '</div>';
   } catch (err) {
     document.getElementById('detailContainer').innerHTML =
       '<div class="alert alert-error">خطأ: ' + err.message + '</div>';
   }
 }
+
+function renderPager(p) {
+  if (p.total_pages <= 1) return '';
+  const prevDisabled = p.page <= 1 ? 'disabled' : '';
+  const nextDisabled = p.page >= p.total_pages ? 'disabled' : '';
+  return '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px">' +
+    '<span class="muted">صفحة ' + p.page + ' من ' + p.total_pages + ' — ' + p.total + ' مستلم</span>' +
+    '<div>' +
+      '<button class="secondary small" ' + prevDisabled + ' onclick="gotoPage(' + (p.page - 1) + ')">← السابق</button> ' +
+      '<button class="secondary small" ' + nextDisabled + ' onclick="gotoPage(' + (p.page + 1) + ')">التالي →</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function gotoPage(n) { currentPage = n; loadDetail(); }
+function setFilter(f) { currentFilter = f; currentPage = 1; loadDetail(); }
 
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
