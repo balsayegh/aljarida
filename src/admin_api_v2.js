@@ -159,6 +159,15 @@ export async function changePhoneAction(request, env, phone) {
     return jsonResponse({ error: 'الرقم الجديد مستخدم لاشتراك آخر بالفعل' }, 400);
   }
 
+  // Check no orphan history in related tables (e.g. from a deleted subscriber).
+  // If found, merging would conflate two users' histories under one phone.
+  const orphanTable = await findOrphanHistory(env.DB, new_phone);
+  if (orphanTable) {
+    return jsonResponse({
+      error: `الرقم الجديد له سجلات سابقة في جدول ${orphanTable} — يرجى تنظيف السجلات أولاً`
+    }, 400);
+  }
+
   // Get current subscriber
   const sub = await env.DB.prepare(`SELECT * FROM subscribers WHERE phone = ?`).bind(phone).first();
   if (!sub) return jsonResponse({ error: 'Subscriber not found' }, 404);
@@ -188,25 +197,22 @@ export async function changePhoneAction(request, env, phone) {
     reason: reason || null,
   };
 
-  // Update: change phone to new, set pending
-  // Using a transaction-like approach: delete old phone's row, insert new with merged data
-  // D1 doesn't support full transactions via prepare, so we do it carefully.
   try {
-    // Move subscriber to new phone number
-    await env.DB.prepare(
-      `UPDATE subscribers
-       SET phone = ?,
-           previous_phones = ?,
-           phone_change_pending = ?
-       WHERE phone = ?`
-    ).bind(new_phone, JSON.stringify(previousPhones), JSON.stringify(pendingData), phone).run();
-
-    // Also update related tables
-    await env.DB.prepare(`UPDATE messages SET phone = ? WHERE phone = ?`).bind(new_phone, phone).run();
-    await env.DB.prepare(`UPDATE consent_log SET phone = ? WHERE phone = ?`).bind(new_phone, phone).run();
-    await env.DB.prepare(`UPDATE broadcast_recipients SET phone = ? WHERE phone = ?`).bind(new_phone, phone).run();
-    await env.DB.prepare(`UPDATE subscription_events SET phone = ? WHERE phone = ?`).bind(new_phone, phone).run();
-    await env.DB.prepare(`UPDATE payments SET phone = ? WHERE phone = ?`).bind(new_phone, phone).run();
+    // Atomically move all phone references from the old number to the new one.
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE subscribers
+         SET phone = ?,
+             previous_phones = ?,
+             phone_change_pending = ?
+         WHERE phone = ?`
+      ).bind(new_phone, JSON.stringify(previousPhones), JSON.stringify(pendingData), phone),
+      env.DB.prepare(`UPDATE messages SET phone = ? WHERE phone = ?`).bind(new_phone, phone),
+      env.DB.prepare(`UPDATE consent_log SET phone = ? WHERE phone = ?`).bind(new_phone, phone),
+      env.DB.prepare(`UPDATE broadcast_recipients SET phone = ? WHERE phone = ?`).bind(new_phone, phone),
+      env.DB.prepare(`UPDATE subscription_events SET phone = ? WHERE phone = ?`).bind(new_phone, phone),
+      env.DB.prepare(`UPDATE payments SET phone = ? WHERE phone = ?`).bind(new_phone, phone),
+    ]);
 
     // Log event (on new phone now)
     await logEvent(env, new_phone, 'phone_change_requested', {
@@ -351,4 +357,19 @@ export async function getPayments(request, env, phone) {
     `SELECT * FROM payments WHERE phone = ? ORDER BY payment_date DESC`
   ).bind(phone).all();
   return jsonResponse({ payments: results });
+}
+
+/**
+ * Check whether a phone number has history rows in any non-subscribers table
+ * (left over from a previously-deleted subscriber). Returns the table name of
+ * the first match, or null. Used to block phone changes that would merge two
+ * users' histories.
+ */
+async function findOrphanHistory(db, phone) {
+  const tables = ['messages', 'consent_log', 'broadcast_recipients', 'subscription_events', 'payments'];
+  for (const table of tables) {
+    const row = await db.prepare(`SELECT 1 FROM ${table} WHERE phone = ? LIMIT 1`).bind(phone).first();
+    if (row) return table;
+  }
+  return null;
 }

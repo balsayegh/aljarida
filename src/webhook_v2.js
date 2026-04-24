@@ -93,20 +93,21 @@ async function handlePhoneChangeReject(env, phone) {
     let previousPhones = parsePreviousPhones(sub.previous_phones);
     previousPhones = previousPhones.filter(p => p.phone !== oldPhone || p.changed_to !== newPhone);
 
-    // Revert: swap back to old phone and update related tables
-    await env.DB.prepare(
-      `UPDATE subscribers
-       SET phone = ?,
-           phone_change_pending = NULL,
-           previous_phones = ?
-       WHERE phone = ?`
-    ).bind(oldPhone, JSON.stringify(previousPhones), newPhone).run();
-
-    await env.DB.prepare(`UPDATE messages SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone).run();
-    await env.DB.prepare(`UPDATE consent_log SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone).run();
-    await env.DB.prepare(`UPDATE broadcast_recipients SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone).run();
-    await env.DB.prepare(`UPDATE subscription_events SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone).run();
-    await env.DB.prepare(`UPDATE payments SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone).run();
+    // Atomically revert all phone references from the new number back to the old.
+    await env.DB.batch([
+      env.DB.prepare(
+        `UPDATE subscribers
+         SET phone = ?,
+             phone_change_pending = NULL,
+             previous_phones = ?
+         WHERE phone = ?`
+      ).bind(oldPhone, JSON.stringify(previousPhones), newPhone),
+      env.DB.prepare(`UPDATE messages SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone),
+      env.DB.prepare(`UPDATE consent_log SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone),
+      env.DB.prepare(`UPDATE broadcast_recipients SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone),
+      env.DB.prepare(`UPDATE subscription_events SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone),
+      env.DB.prepare(`UPDATE payments SET phone = ? WHERE phone = ?`).bind(oldPhone, newPhone),
+    ]);
 
     await logEvent(env, oldPhone, 'phone_change_rejected', {
       new_phone_attempted: newPhone,

@@ -239,7 +239,7 @@ function render(d) {
   // Pending phone change banner
   if (sub.has_pending_phone_change) {
     const p = sub.phone_change_pending;
-    html += '<div class="pending-banner">⏳ طلب تغيير رقم معلّق من ' + p.old_phone + ' إلى ' + p.new_phone +
+    html += '<div class="pending-banner">⏳ طلب تغيير رقم معلّق من ' + escHtml(p.old_phone) + ' إلى ' + escHtml(p.new_phone) +
             ' — ينتهي خلال ' + timeUntil(p.expires_at) + '</div>';
   }
 
