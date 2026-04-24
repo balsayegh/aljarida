@@ -18,3 +18,19 @@ TIMEZONE = "Asia/Kuwait"
 # Runs: renewal reminders, auto-pause expired, timeout pending phone changes
 [triggers]
 crons = ["0 7 * * *"]
+
+# ----------------------------------------------------------------------------
+# Broadcast queue — producer fans out daily delivery sends; consumer talks to Meta.
+# Messages that fail all retries land in the DLQ for admin review.
+# ----------------------------------------------------------------------------
+[[queues.producers]]
+binding = "BROADCAST_QUEUE"
+queue = "aljarida-broadcast-sends"
+
+[[queues.consumers]]
+queue = "aljarida-broadcast-sends"
+max_batch_size = 50
+max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "aljarida-broadcast-dlq"
+max_concurrency = 10
