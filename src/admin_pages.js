@@ -557,7 +557,12 @@ async function sendBroadcast() {
     const d = await r.json();
     document.getElementById('progressFill').style.width = '100%';
 
-    if (d.success) {
+    if (d.success && d.status === 'queued') {
+      showAlert('sendStatus',
+        'تم جدولة الإرسال لـ ' + d.total + ' مشترك. التقدم يظهر في صفحة تفاصيل الإرسال. ' +
+        '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل ←</a>',
+        'info');
+    } else if (d.success) {
       showAlert('sendStatus',
         'تم الإرسال: ' + d.sent + ' بنجاح، ' + d.failed + ' فشل من أصل ' + d.total + ' مشترك. ' +
         '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل</a>',

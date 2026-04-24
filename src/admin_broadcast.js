@@ -12,9 +12,9 @@
 import { sendDailyDeliveryTemplate } from './whatsapp.js';
 import { jsonResponse } from './admin.js';
 import { getNextPublishingDate } from './date_util.js';
+import { enqueueBroadcast } from './broadcast_queue.js';
 
-// Chunk size for parallel WhatsApp sends. Keeps the HTTP response fast
-// without blowing through Workers' per-request subrequest limit all at once.
+// Chunk size for parallel WhatsApp sends in the inline (legacy) path.
 const BROADCAST_CHUNK_SIZE = 15;
 
 export async function handleBroadcast(request, env, ctx) {
@@ -110,12 +110,25 @@ export async function handleBroadcast(request, env, ctx) {
 
     const broadcastId = broadcastResult.meta.last_row_id;
 
+    // Queue path: fan out to the broadcast queue, return immediately.
+    // The consumer (broadcast_queue.js) handles Meta calls and DB writes
+    // and reconciles broadcasts.status to 'completed' when done.
+    if (env.USE_BROADCAST_QUEUE === 'true' && env.BROADCAST_QUEUE) {
+      await enqueueBroadcast(env, broadcastId, subscribers, pdfUrl, date, headlines);
+      return jsonResponse({
+        success: true,
+        broadcast_id: broadcastId,
+        total: subscribers.length,
+        status: 'queued',
+        message: 'Broadcast queued — progress visible on the broadcast detail page.',
+        pdfUrl,
+      }, 202);
+    }
+
+    // Inline path (legacy): synchronous parallel sends, returns with counts.
     let sentCount = 0;
     let failedCount = 0;
 
-    // Send in parallel chunks; batch each chunk's DB writes into a single
-    // transaction so N subscribers = N Meta calls + N/CHUNK_SIZE DB batches
-    // instead of 2N sequential DB calls.
     for (let i = 0; i < subscribers.length; i += BROADCAST_CHUNK_SIZE) {
       const chunk = subscribers.slice(i, i + BROADCAST_CHUNK_SIZE);
       const results = await Promise.all(
