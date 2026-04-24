@@ -66,8 +66,8 @@ async function handlePhoneChangeConfirm(env, phone) {
 
   // Send a free-form confirmation message (CSW is open because they just replied)
   try {
-    const { sendFreeformMessage } = await import('./whatsapp.js');
-    await sendFreeformMessage(env, phone,
+    const { sendTextMessage } = await import('./whatsapp.js');
+    await sendTextMessage(env, phone,
       'تم تأكيد تحديث رقم اشتراكك بنجاح ✓\n\nستصلك النسخة الرقمية من جريدة الجريدة على هذا الرقم.'
     );
   } catch (err) {
@@ -114,8 +114,8 @@ async function handlePhoneChangeReject(env, phone) {
 
     // Send a message to the rejecting number (new phone — CSW just opened)
     try {
-      const { sendFreeformMessage } = await import('./whatsapp.js');
-      await sendFreeformMessage(env, newPhone,
+      const { sendTextMessage } = await import('./whatsapp.js');
+      await sendTextMessage(env, newPhone,
         'تم إلغاء طلب تحديث الرقم. إذا كنت قد طلبت هذا التحديث بالخطأ فلا مشكلة — لن يتم تغيير أي شيء.'
       );
     } catch (err) {
@@ -135,8 +135,8 @@ async function handlePhoneChangeReject(env, phone) {
  */
 async function handleRenewalYes(env, phone) {
   try {
-    const { sendFreeformMessage } = await import('./whatsapp.js');
-    await sendFreeformMessage(env, phone,
+    const { sendTextMessage } = await import('./whatsapp.js');
+    await sendTextMessage(env, phone,
       'ممتاز! للتجديد:\n\n' +
       '💰 الاشتراك السنوي: 12 د.ك\n\n' +
       '[رابط الدفع سيظهر هنا قريباً]\n\n' +
@@ -154,8 +154,8 @@ async function handleRenewalYes(env, phone) {
  */
 async function handleRenewalHelp(env, phone) {
   try {
-    const { sendFreeformMessage } = await import('./whatsapp.js');
-    await sendFreeformMessage(env, phone,
+    const { sendTextMessage } = await import('./whatsapp.js');
+    await sendTextMessage(env, phone,
       'نحن هنا لمساعدتك!\n\nاكتب استفسارك وسنرد عليك في أقرب وقت.'
     );
     await logEvent(env, phone, 'help_requested', { context: 'renewal' }, 'subscriber');
