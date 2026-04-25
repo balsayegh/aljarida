@@ -35,6 +35,13 @@ export async function sendOfferWithButtons(env, to, bodyText) {
  * Send daily delivery template — the approved aljarida_daily_delivery_ar.
  */
 export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, headlines) {
+  // Extract the YYYYMMDD slug from the PDF URL (e.g. aljarida-20260426-1.pdf).
+  // dateString here is the Arabic display string ("الأحد 26 إبريل 2026") which
+  // has no month digits, so stripping non-digits would yield a malformed
+  // "aljarida-262026.pdf". The URL is the reliable source of the numeric date.
+  const slugMatch = pdfUrl.match(/aljarida-(\d{8})/);
+  const filename = slugMatch ? `aljarida-${slugMatch[1]}.pdf` : 'aljarida.pdf';
+
   return sendMessage(env, {
     messaging_product: 'whatsapp',
     to,
@@ -50,7 +57,7 @@ export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, hea
               type: 'document',
               document: {
                 link: pdfUrl,
-                filename: `aljarida-${dateString.replace(/[^0-9]/g, '')}.pdf`,
+                filename,
               },
             },
           ],
