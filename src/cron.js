@@ -5,12 +5,16 @@
  *   1. Send renewal reminders (7 days + 1 day before expiry)
  *   2. Auto-pause expired subscriptions (except pilot plans)
  *   3. Time out pending phone change verifications (>24 hours)
+ *   4. Reconcile or flag stuck queue-mode broadcasts (no activity for 30m)
+ *   5. Prune broadcast_recipients + message_status older than 90 days
  */
 
 import { sendRenewalReminder } from './whatsapp_v2.js';
 import { logEvent, formatDaysRemaining, PLAN_PILOT } from './subscription.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const BROADCAST_RETENTION_DAYS = 90;
+const STUCK_BROADCAST_THRESHOLD_MS = 30 * 60 * 1000;
 
 /**
  * Main cron entry point. Called by Cloudflare's scheduled trigger.
@@ -19,13 +23,20 @@ export async function handleScheduledTask(event, env, ctx) {
   console.log('[cron] Daily subscription check starting');
 
   try {
-    const [reminderResult, pauseResult, phoneChangeResult] = await Promise.all([
+    const [reminderResult, pauseResult, phoneChangeResult, stuckResult, pruneResult] = await Promise.all([
       sendRenewalReminders(env),
       autoPauseExpired(env),
       timeoutPendingPhoneChanges(env),
+      checkStuckBroadcasts(env),
+      pruneOldBroadcastData(env),
     ]);
 
-    console.log('[cron] Done. Reminders:', reminderResult, 'Paused:', pauseResult, 'PhoneChanges:', phoneChangeResult);
+    console.log('[cron] Done.',
+      'Reminders:', reminderResult,
+      'Paused:', pauseResult,
+      'PhoneChanges:', phoneChangeResult,
+      'StuckBroadcasts:', stuckResult,
+      'Pruned:', pruneResult);
   } catch (err) {
     console.error('[cron] Error:', err);
   }
@@ -199,4 +210,92 @@ async function timeoutPendingPhoneChanges(env) {
   }
 
   return { reverted };
+}
+
+/**
+ * Reconcile or flag broadcasts stuck at status='in_progress'.
+ *
+ * Three outcomes per in-progress broadcast:
+ *   - completed: every target subscriber has a recipient row → flip status
+ *   - stalled:   no consumer activity for STUCK_BROADCAST_THRESHOLD_MS AND
+ *                target_count not reached → flip to 'stalled' so admin sees
+ *                it ended without finishing (DLQ likely contains the rest)
+ *   - ongoing:   recent activity OR recently started → leave alone
+ *
+ * Activity = MAX(broadcast_recipients.created_at). For just-started broadcasts
+ * with no recipients yet, fall back to broadcasts.started_at.
+ */
+async function checkStuckBroadcasts(env) {
+  const now = Date.now();
+  const { results: inProgress } = await env.DB.prepare(
+    `SELECT id, target_count, started_at FROM broadcasts WHERE status = 'in_progress'`
+  ).all();
+
+  let completed = 0, stalled = 0, ongoing = 0;
+
+  for (const b of inProgress) {
+    try {
+      const counts = await env.DB.prepare(
+        `SELECT
+           COUNT(*) as total,
+           MAX(created_at) as last_activity,
+           SUM(CASE WHEN send_status = 'sent' THEN 1 ELSE 0 END) as sent,
+           SUM(CASE WHEN send_status = 'failed' THEN 1 ELSE 0 END) as failed
+         FROM broadcast_recipients WHERE broadcast_id = ?`
+      ).bind(b.id).first();
+
+      const total = counts?.total || 0;
+      const lastActivity = counts?.last_activity || b.started_at;
+
+      if (total >= b.target_count) {
+        await env.DB.prepare(
+          `UPDATE broadcasts
+           SET sent_count = ?, failed_count = ?, status = 'completed', finished_at = ?
+           WHERE id = ? AND status = 'in_progress'`
+        ).bind(counts.sent || 0, counts.failed || 0, now, b.id).run();
+        completed++;
+      } else if (now - lastActivity > STUCK_BROADCAST_THRESHOLD_MS) {
+        await env.DB.prepare(
+          `UPDATE broadcasts
+           SET sent_count = ?, failed_count = ?, status = 'stalled', finished_at = ?
+           WHERE id = ? AND status = 'in_progress'`
+        ).bind(counts?.sent || 0, counts?.failed || 0, now, b.id).run();
+        stalled++;
+      } else {
+        ongoing++;
+      }
+    } catch (err) {
+      console.error(`[cron] stuck broadcast check failed for id=${b.id}:`, err.message);
+    }
+  }
+
+  return { completed, stalled, ongoing };
+}
+
+/**
+ * Prune broadcast_recipients and message_status rows older than the retention
+ * window. broadcasts table is left intact so historical summaries stay
+ * available; only the per-recipient detail and raw status events are dropped.
+ */
+async function pruneOldBroadcastData(env) {
+  const cutoff = Date.now() - BROADCAST_RETENTION_DAYS * DAY_MS;
+
+  try {
+    const recipients = await env.DB.prepare(
+      `DELETE FROM broadcast_recipients
+       WHERE broadcast_id IN (SELECT id FROM broadcasts WHERE started_at < ?)`
+    ).bind(cutoff).run();
+
+    const statuses = await env.DB.prepare(
+      `DELETE FROM message_status WHERE timestamp < ?`
+    ).bind(cutoff).run();
+
+    return {
+      broadcast_recipients_deleted: recipients.meta.changes || 0,
+      message_status_deleted: statuses.meta.changes || 0,
+    };
+  } catch (err) {
+    console.error('[cron] prune failed:', err.message);
+    return { error: err.message };
+  }
 }
