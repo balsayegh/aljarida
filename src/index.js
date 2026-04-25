@@ -7,6 +7,7 @@ import { handleAdminRequest } from './admin.js';
 import { handleScheduledTask } from './cron.js';
 import { timingSafeEqual, verifyMetaSignature } from './crypto_util.js';
 import { handleBroadcastQueue, handleBroadcastDlq } from './broadcast_queue.js';
+import { handleOttuWebhook, handlePaymentSuccess } from './payment.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -29,6 +30,14 @@ export default {
 
     if (url.pathname.startsWith('/admin')) {
       return handleAdminRequest(request, env, ctx, url);
+    }
+
+    if (url.pathname === '/payment/webhook' && request.method === 'POST') {
+      return handleOttuWebhook(request, env, ctx);
+    }
+
+    if (url.pathname === '/payment/success' && request.method === 'GET') {
+      return handlePaymentSuccess(request, env);
     }
 
     return new Response('Not found', { status: 404 });

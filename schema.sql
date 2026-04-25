@@ -190,6 +190,29 @@ CREATE INDEX IF NOT EXISTS idx_events_phone ON subscription_events(phone);
 CREATE INDEX IF NOT EXISTS idx_events_created ON subscription_events(created_at DESC);
 
 -- ----------------------------------------------------------------------------
+-- Payment intents (Ottu checkout sessions)
+-- ----------------------------------------------------------------------------
+-- Each Ottu checkout we create is recorded here so the webhook can map
+-- session_id -> phone, and so we can dedupe repeat webhooks (status flips
+-- to 'paid' once; subsequent identical webhooks are ignored).
+CREATE TABLE IF NOT EXISTS payment_intents (
+  session_id       TEXT PRIMARY KEY,
+  order_no         TEXT NOT NULL,
+  phone            TEXT NOT NULL,
+  amount_kwd       REAL NOT NULL,
+  plan             TEXT NOT NULL,
+  state            TEXT NOT NULL DEFAULT 'pending',  -- 'pending', 'paid', 'failed', 'canceled'
+  checkout_url     TEXT,
+  created_at       INTEGER NOT NULL,
+  paid_at          INTEGER,
+  raw_webhook      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_intents_phone ON payment_intents(phone);
+CREATE INDEX IF NOT EXISTS idx_intents_created ON payment_intents(created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_intents_order ON payment_intents(order_no);
+
+-- ----------------------------------------------------------------------------
 -- Broadcast failures (DLQ landing zone)
 -- ----------------------------------------------------------------------------
 -- When a queue message exceeds max_retries, Cloudflare moves it to the DLQ.

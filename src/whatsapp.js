@@ -31,10 +31,6 @@ export async function sendOfferWithButtons(env, to, bodyText) {
   });
 }
 
-export async function sendPaymentPrompt(env, to, text) {
-  return sendTextMessage(env, to, text);
-}
-
 /**
  * Send daily delivery template — the approved aljarida_daily_delivery_ar.
  */

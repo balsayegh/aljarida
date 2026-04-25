@@ -6,9 +6,11 @@
  *   - Renewal reminder button responses (تجديد الاشتراك/المساعدة)
  */
 
-import { sendTextMessage, sendOfferWithButtons, sendPaymentPrompt } from './whatsapp.js';
+import { sendTextMessage, sendOfferWithButtons } from './whatsapp.js';
 import { messages as t } from './templates.js';
 import { handleTemplateButtonReply } from './webhook_v2.js';
+import { createCheckout } from './ottu.js';
+import { PRICING, PLAN_YEARLY } from './subscription.js';
 
 export async function handleInboundMessage(message, contacts, env) {
   const from = message.from;
@@ -165,7 +167,7 @@ async function handleYesResponse(env, phone, subscriber) {
     `UPDATE subscribers SET state = ?, yes_at = ? WHERE phone = ?`
   ).bind('yes', now, phone).run();
 
-  await sendPaymentPrompt(env, phone, t.paymentPrompt);
+  await sendCheckoutLink(env, phone, subscriber);
   await updateSubscriberState(env.DB, phone, 'awaiting_payment');
 }
 
@@ -176,7 +178,38 @@ async function handleNoResponse(env, phone, subscriber) {
 
 async function handleReturningPayer(env, phone, subscriber, message) {
   await sendTextMessage(env, phone, t.paymentReminder);
-  await sendPaymentPrompt(env, phone, t.paymentPrompt);
+  await sendCheckoutLink(env, phone, subscriber);
+}
+
+/**
+ * Create a fresh Ottu checkout for this subscriber and send the link.
+ * Records a payment_intents row so the webhook can later look it up by session_id.
+ * Falls back to a friendly error message if Ottu is unreachable / misconfigured.
+ */
+async function sendCheckoutLink(env, phone, subscriber) {
+  const plan = PLAN_YEARLY;
+  const amountKwd = PRICING[plan];
+  const orderNo = `aljarida-${phone}-${Date.now()}`;
+
+  try {
+    const { session_id, checkout_url } = await createCheckout(env, {
+      phone,
+      amountKwd,
+      orderNo,
+      customerFirstName: subscriber?.profile_name || undefined,
+    });
+
+    await env.DB.prepare(
+      `INSERT INTO payment_intents
+        (session_id, order_no, phone, amount_kwd, plan, state, checkout_url, created_at)
+       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
+    ).bind(session_id, orderNo, phone, amountKwd, plan, checkout_url, Date.now()).run();
+
+    await sendTextMessage(env, phone, `${t.paymentPromptIntro}\n\n${checkout_url}\n\n${t.paymentPromptOutro}`);
+  } catch (err) {
+    console.error(`[ottu] checkout creation failed for ${phone}:`, err);
+    await sendTextMessage(env, phone, t.paymentPromptFallback);
+  }
 }
 
 async function handleActiveSubscriber(env, phone, subscriber, message) {
