@@ -6,7 +6,7 @@ import { handleInboundMessage, handleStatusUpdates } from './handlers.js';
 import { handleAdminRequest } from './admin.js';
 import { handleScheduledTask } from './cron.js';
 import { timingSafeEqual, verifyMetaSignature } from './crypto_util.js';
-import { handleBroadcastQueue } from './broadcast_queue.js';
+import { handleBroadcastQueue, handleBroadcastDlq } from './broadcast_queue.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -48,6 +48,9 @@ export default {
   async queue(batch, env, ctx) {
     if (batch.queue === 'aljarida-broadcast-sends') {
       return handleBroadcastQueue(batch, env);
+    }
+    if (batch.queue === 'aljarida-broadcast-dlq') {
+      return handleBroadcastDlq(batch, env);
     }
     console.warn(`[queue] unknown queue: ${batch.queue}`);
   },

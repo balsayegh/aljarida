@@ -33,7 +33,7 @@
  */
 
 import { renderLoginPage } from './admin_pages.js';
-import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage } from './admin_pages.js';
+import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage, renderFailuresPage } from './admin_pages.js';
 import { renderSubscriberDetailPage } from './admin_subscriber_detail.js';
 import { handleBroadcast } from './admin_broadcast.js';
 import {
@@ -73,6 +73,7 @@ export async function handleAdminRequest(request, env, ctx, url) {
     if (path === '/admin') return htmlResponse(renderDashboardPage());
     if (path === '/admin/subscribers') return htmlResponse(renderSubscribersPage());
     if (path === '/admin/broadcasts') return htmlResponse(renderBroadcastsPage());
+    if (path === '/admin/failures') return htmlResponse(renderFailuresPage());
 
     const subDetailMatch = path.match(/^\/admin\/subscribers\/([^\/]+)$/);
     if (subDetailMatch) return htmlResponse(renderSubscriberDetailPage(decodeURIComponent(subDetailMatch[1])));
@@ -154,7 +155,30 @@ export async function handleAdminRequest(request, env, ctx, url) {
     return handleApiBroadcastDetail(env, broadcastDetailMatch[1], request);
   }
 
+  if (path === '/admin/api/failures' && method === 'GET') {
+    return handleApiFailures(request, env);
+  }
+
   return new Response('Not found', { status: 404 });
+}
+
+async function handleApiFailures(request, env) {
+  const url = new URL(request.url);
+  const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10)));
+
+  const [{ results }, total] = await Promise.all([
+    env.DB.prepare(
+      `SELECT f.id, f.broadcast_id, f.phone, f.payload, f.failed_at,
+              b.date_string, b.status as broadcast_status
+       FROM broadcast_failures f
+       LEFT JOIN broadcasts b ON b.id = f.broadcast_id
+       ORDER BY f.failed_at DESC
+       LIMIT ?`
+    ).bind(limit).all(),
+    env.DB.prepare(`SELECT COUNT(*) as c FROM broadcast_failures`).first(),
+  ]);
+
+  return jsonResponse({ failures: results, total: total?.c || 0 });
 }
 
 // ----------------------------------------------------------------------------

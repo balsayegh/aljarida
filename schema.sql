@@ -188,3 +188,19 @@ CREATE TABLE IF NOT EXISTS subscription_events (
 
 CREATE INDEX IF NOT EXISTS idx_events_phone ON subscription_events(phone);
 CREATE INDEX IF NOT EXISTS idx_events_created ON subscription_events(created_at DESC);
+
+-- ----------------------------------------------------------------------------
+-- Broadcast failures (DLQ landing zone)
+-- ----------------------------------------------------------------------------
+-- When a queue message exceeds max_retries, Cloudflare moves it to the DLQ.
+-- The DLQ consumer drains those into this table for admin inspection.
+CREATE TABLE IF NOT EXISTS broadcast_failures (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  broadcast_id     INTEGER,
+  phone            TEXT NOT NULL,
+  payload          TEXT,                 -- JSON of the original queue message body
+  failed_at        INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_failures_failed_at ON broadcast_failures(failed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_failures_broadcast ON broadcast_failures(broadcast_id);

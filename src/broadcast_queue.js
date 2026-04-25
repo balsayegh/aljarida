@@ -152,6 +152,63 @@ function truncate(s, n) {
 }
 
 /**
+ * DLQ consumer. Cloudflare delivers each message that exceeded max_retries
+ * on the main queue. We:
+ *   1. Record the payload in broadcast_failures for admin inspection.
+ *   2. Insert a recipient row with send_status='dlq' so the broadcast can
+ *      reach target_count and eventually complete (with the failed slots
+ *      surfaced via filter=failed in the admin UI).
+ *   3. Reconcile the affected broadcast(s).
+ *
+ * INSERT OR IGNORE on broadcast_recipients handles the rare case where a
+ * 'pending' row was somehow not deleted before DLQ — we don't want a
+ * UNIQUE-constraint blowup to cause the DLQ message to retry forever.
+ */
+export async function handleBroadcastDlq(batch, env) {
+  if (!batch.messages.length) return;
+
+  const broadcastIdsTouched = new Set();
+  const ts = Date.now();
+  const stmts = [];
+
+  for (const msg of batch.messages) {
+    const body = msg.body || {};
+    const broadcastId = body.broadcast_id || null;
+    const phone = body.phone || 'unknown';
+
+    stmts.push(
+      env.DB.prepare(
+        `INSERT INTO broadcast_failures (broadcast_id, phone, payload, failed_at)
+         VALUES (?, ?, ?, ?)`
+      ).bind(broadcastId, phone, JSON.stringify(body), ts)
+    );
+
+    if (broadcastId) {
+      stmts.push(
+        env.DB.prepare(
+          `INSERT OR IGNORE INTO broadcast_recipients
+            (broadcast_id, phone, send_status, error_message, created_at)
+           VALUES (?, ?, 'dlq', 'DLQ: exceeded max retries', ?)`
+        ).bind(broadcastId, phone, ts)
+      );
+      broadcastIdsTouched.add(broadcastId);
+    }
+  }
+
+  await env.DB.batch(stmts);
+  for (const msg of batch.messages) msg.ack();
+  console.log(`[dlq] recorded ${batch.messages.length} dead-lettered messages`);
+
+  for (const bid of broadcastIdsTouched) {
+    try {
+      await reconcileBroadcastStatus(env, bid);
+    } catch (err) {
+      console.error(`[dlq] reconcile failed for broadcast ${bid}:`, err.message);
+    }
+  }
+}
+
+/**
  * If every target subscriber now has a recipient row, flip the broadcast
  * to status='completed' with final counts. The UPDATE is conditional on
  * status != 'completed' so concurrent consumers can't double-complete.

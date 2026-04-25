@@ -226,6 +226,7 @@ export function pageShell(title, activePage, bodyHtml) {
     <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
     <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}">المشتركون</a>
     <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}">سجل الإرسال</a>
+    <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}">التنبيهات</a>
   </div>
   <div class="topnav-actions">
     <form method="POST" action="/admin/logout" style="margin:0">
@@ -1035,4 +1036,77 @@ setInterval(loadDetail, 15000);
 </script>
   `;
   return pageShell('تفاصيل الإرسال', 'broadcasts', body);
+}
+
+// ----------------------------------------------------------------------------
+// Failures page (DLQ inspection)
+// ----------------------------------------------------------------------------
+
+export function renderFailuresPage() {
+  const body = `
+<h1>التنبيهات</h1>
+<p class="subtitle">الرسائل التي فشل إرسالها بعد 3 محاولات (DLQ)</p>
+
+<div class="card">
+  <div id="failuresContainer">
+    <div class="empty-state">جارٍ التحميل...</div>
+  </div>
+</div>
+
+<script>
+async function loadFailures() {
+  try {
+    const r = await fetch('/admin/api/failures?limit=200');
+    const d = await r.json();
+
+    const container = document.getElementById('failuresContainer');
+
+    if (!d.failures || d.failures.length === 0) {
+      container.innerHTML = '<div class="empty-state">لا توجد رسائل فاشلة 🎉</div>';
+      return;
+    }
+
+    const rows = d.failures.map(function(f) {
+      let payloadObj = {};
+      try { payloadObj = JSON.parse(f.payload || '{}'); } catch {}
+      const dateLabel = f.date_string ? escapeHtml(f.date_string) : ('#' + (f.broadcast_id || '?'));
+      const broadcastLink = f.broadcast_id
+        ? '<a href="/admin/broadcasts/' + f.broadcast_id + '">' + dateLabel + '</a>'
+        : dateLabel;
+      return '<tr>' +
+        '<td>' + formatDateTime(f.failed_at) + '</td>' +
+        '<td class="phone">' + escapeHtml(f.phone) + '</td>' +
+        '<td>' + broadcastLink + '</td>' +
+        '<td class="muted">' + (escapeHtml(payloadObj.date) || '—') + '</td>' +
+      '</tr>';
+    }).join('');
+
+    container.innerHTML =
+      '<p class="muted" style="margin:0 0 12px">' + d.total + ' رسالة فاشلة في المجموع — تعرض آخر ' + d.failures.length + '</p>' +
+      '<div style="overflow-x:auto"><table>' +
+      '<thead><tr>' +
+        '<th>وقت الفشل</th><th>الهاتف</th><th>الإرسال</th><th>التاريخ</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  } catch (err) {
+    document.getElementById('failuresContainer').innerHTML =
+      '<div class="alert alert-error">خطأ: ' + err.message + '</div>';
+  }
+}
+
+function formatDateTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('ar', { month: 'short', day: 'numeric' }) + ' ' +
+    d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadFailures();
+setInterval(loadFailures, 30000);
+</script>
+  `;
+  return pageShell('التنبيهات', 'failures', body);
 }

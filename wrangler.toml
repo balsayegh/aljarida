@@ -34,3 +34,11 @@ max_batch_timeout = 5
 max_retries = 3
 dead_letter_queue = "aljarida-broadcast-dlq"
 max_concurrency = 10
+
+# DLQ drain — records failed messages in broadcast_failures for admin review.
+# No retries here; if this consumer fails the message just stays in the DLQ.
+[[queues.consumers]]
+queue = "aljarida-broadcast-dlq"
+max_batch_size = 50
+max_batch_timeout = 30
+max_retries = 0
