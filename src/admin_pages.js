@@ -333,23 +333,7 @@ export function renderDashboardPage() {
     </div>
   </div>
 
-  <div style="margin-top:16px"></div>
-
-  <div class="grid-2">
-    <div>
-      <label>العنوان الأول</label>
-      <input type="text" id="headline1" placeholder="أبرز خبر العدد">
-    </div>
-    <div>
-      <label>العنوان الثاني</label>
-      <input type="text" id="headline2" placeholder="خبر ثانٍ">
-    </div>
-  </div>
-
-  <label>العنوان الثالث</label>
-  <input type="text" id="headline3" placeholder="خبر ثالث">
-
-  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:8px">
+  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:16px">
     إرسال لجميع المشتركين النشطين
   </button>
 
@@ -497,12 +481,9 @@ setInterval(loadStats, 30000);
 async function sendBroadcast() {
   const targetDateIso = document.getElementById('targetDate').value;
   const date = document.getElementById('date').value.trim();
-  const h1 = document.getElementById('headline1').value.trim();
-  const h2 = document.getElementById('headline2').value.trim();
-  const h3 = document.getElementById('headline3').value.trim();
 
-  if (!date || !h1 || !h2 || !h3) {
-    showAlert('sendStatus', 'يُرجى تعبئة التاريخ والعناوين الثلاثة', 'error');
+  if (!date) {
+    showAlert('sendStatus', 'يُرجى تعبئة التاريخ', 'error');
     return;
   }
 
@@ -549,7 +530,6 @@ async function sendBroadcast() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         date,
-        headlines: [h1, h2, h3],
         override,
         targetDateOverride: targetDateIso,
         customPdfUrl: customUrl,
@@ -977,12 +957,6 @@ async function loadDetail() {
         '<p><strong>التاريخ:</strong> ' + escapeHtml(b.date_string) + '</p>' +
         '<p><strong>ملف PDF:</strong></p>' +
         '<div class="code">' + escapeHtml(b.pdf_url) + '</div>' +
-        '<p><strong>العناوين:</strong></p>' +
-        '<ul>' +
-          '<li>' + escapeHtml(b.headline_1) + '</li>' +
-          '<li>' + escapeHtml(b.headline_2) + '</li>' +
-          '<li>' + escapeHtml(b.headline_3) + '</li>' +
-        '</ul>' +
       '</div>' +
 
       '<div class="card">' +

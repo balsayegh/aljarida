@@ -36,7 +36,7 @@ const RETRIABLE_META_ERROR_CODES = new Set([
  * Enqueue one queue message per subscriber.
  * Splits into sub-batches of 100 to stay under the queue.sendBatch() limit.
  */
-export async function enqueueBroadcast(env, broadcastId, subscribers, pdfUrl, date, headlines) {
+export async function enqueueBroadcast(env, broadcastId, subscribers, pdfUrl, date) {
   const BATCH = 100;
   for (let i = 0; i < subscribers.length; i += BATCH) {
     const chunk = subscribers.slice(i, i + BATCH);
@@ -47,7 +47,6 @@ export async function enqueueBroadcast(env, broadcastId, subscribers, pdfUrl, da
           phone: sub.phone,
           pdf_url: pdfUrl,
           date,
-          headlines,
         },
       }))
     );
@@ -84,7 +83,7 @@ export async function handleBroadcastQueue(batch, env) {
 }
 
 async function processBroadcastMessage(env, msg) {
-  const { broadcast_id, phone, pdf_url, date, headlines } = msg.body;
+  const { broadcast_id, phone, pdf_url, date } = msg.body;
   const ts = Date.now();
 
   // Idempotency claim: INSERT OR IGNORE returns changes=0 if the row
@@ -101,7 +100,7 @@ async function processBroadcastMessage(env, msg) {
   }
 
   try {
-    const response = await sendDailyDeliveryTemplate(env, phone, pdf_url, date, headlines);
+    const response = await sendDailyDeliveryTemplate(env, phone, pdf_url, date);
     const waMessageId = response.messages?.[0]?.id || null;
 
     await env.DB.batch([

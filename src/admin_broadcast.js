@@ -19,11 +19,10 @@ const BROADCAST_CHUNK_SIZE = 15;
 
 export async function handleBroadcast(request, env, ctx) {
   try {
-    const { date, headlines, override, customPdfUrl, targetDateOverride } = await request.json();
+    const { date, override, customPdfUrl, targetDateOverride } = await request.json();
 
-    if (!date || !headlines || headlines.length !== 3 ||
-        !headlines[0] || !headlines[1] || !headlines[2]) {
-      return jsonResponse({ error: 'Missing date or 3 headlines' }, 400);
+    if (!date) {
+      return jsonResponse({ error: 'Missing date' }, 400);
     }
 
     // Determine the PDF URL:
@@ -104,9 +103,9 @@ export async function handleBroadcast(request, env, ctx) {
 
     const broadcastResult = await env.DB.prepare(
       `INSERT INTO broadcasts
-        (date_string, pdf_url, headline_1, headline_2, headline_3, target_count, status, started_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?)`
-    ).bind(date, pdfUrl, headlines[0], headlines[1], headlines[2], subscribers.length, now).run();
+        (date_string, pdf_url, target_count, status, started_at)
+       VALUES (?, ?, ?, 'in_progress', ?)`
+    ).bind(date, pdfUrl, subscribers.length, now).run();
 
     const broadcastId = broadcastResult.meta.last_row_id;
 
@@ -114,7 +113,7 @@ export async function handleBroadcast(request, env, ctx) {
     // The consumer (broadcast_queue.js) handles Meta calls and DB writes
     // and reconciles broadcasts.status to 'completed' when done.
     if (env.USE_BROADCAST_QUEUE === 'true' && env.BROADCAST_QUEUE) {
-      await enqueueBroadcast(env, broadcastId, subscribers, pdfUrl, date, headlines);
+      await enqueueBroadcast(env, broadcastId, subscribers, pdfUrl, date);
       return jsonResponse({
         success: true,
         broadcast_id: broadcastId,
@@ -134,7 +133,7 @@ export async function handleBroadcast(request, env, ctx) {
       const results = await Promise.all(
         chunk.map(async (sub) => {
           try {
-            const response = await sendDailyDeliveryTemplate(env, sub.phone, pdfUrl, date, headlines);
+            const response = await sendDailyDeliveryTemplate(env, sub.phone, pdfUrl, date);
             return { sub, ok: true, waMessageId: response.messages?.[0]?.id || null };
           } catch (err) {
             console.error(`Failed to send to ${sub.phone}:`, err.message);

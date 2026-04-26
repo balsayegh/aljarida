@@ -34,7 +34,7 @@ export async function sendOfferWithButtons(env, to, bodyText) {
 /**
  * Send daily delivery template — the approved aljarida_daily_delivery_ar.
  */
-export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, headlines) {
+export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString) {
   // Extract the YYYYMMDD slug from the PDF URL (e.g. aljarida-20260426-1.pdf).
   // dateString here is the Arabic display string ("الأحد 26 إبريل 2026") which
   // has no month digits, so stripping non-digits would yield a malformed
@@ -66,9 +66,6 @@ export async function sendDailyDeliveryTemplate(env, to, pdfUrl, dateString, hea
           type: 'body',
           parameters: [
             { type: 'text', text: dateString },
-            { type: 'text', text: headlines[0] || '' },
-            { type: 'text', text: headlines[1] || '' },
-            { type: 'text', text: headlines[2] || '' },
           ],
         },
       ],
