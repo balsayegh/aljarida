@@ -294,6 +294,24 @@ export function renderDashboardPage() {
   <div class="stat-card"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
 </div>
 
+<div class="stats-grid" style="margin-top:16px">
+  <a href="/admin/payments" class="stat-card stat-link" style="text-decoration:none;color:inherit">
+    <div class="stat-label">مدفوعات هذا الشهر</div>
+    <div class="stat-value" id="stat-month-paid">—</div>
+    <div class="stat-sub muted" id="stat-month-count">—</div>
+  </a>
+  <div class="stat-card" id="stuckCard">
+    <div class="stat-label">محاولات دفع معلّقة (&gt; ساعة)</div>
+    <div class="stat-value" id="stat-stuck">—</div>
+    <div class="stat-sub muted">قد يحتاجون متابعة</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">آخر دفعة مستلمة</div>
+    <div class="stat-value" id="stat-last-amount">—</div>
+    <div class="stat-sub muted" id="stat-last-meta">—</div>
+  </div>
+</div>
+
 <div class="card">
   <h2>إرسال العدد القادم</h2>
   <p class="muted" style="margin:0 0 16px">
@@ -465,6 +483,25 @@ async function loadStats() {
     document.getElementById('stat-unsub').textContent = d.unsubscribed;
     document.getElementById('stat-total').textContent = d.total;
 
+    // Payment stats — guard with optional chaining since older deploys don't set it
+    const p = d.payments || {};
+    document.getElementById('stat-month-paid').textContent = (p.month_total_kwd || 0).toFixed(3) + ' د.ك';
+    document.getElementById('stat-month-count').textContent = (p.month_count || 0) + ' دفعة';
+    document.getElementById('stat-stuck').textContent = p.stuck_pending || 0;
+    // Highlight stuck card in amber when count > 0
+    document.getElementById('stuckCard').style.borderInlineStart =
+      (p.stuck_pending > 0) ? '3px solid #f59e0b' : '';
+    if (p.last_payment) {
+      const lp = p.last_payment;
+      document.getElementById('stat-last-amount').textContent = Number(lp.amount_kwd).toFixed(3) + ' د.ك';
+      const ago = relTimeAr(Date.now() - lp.payment_date);
+      const gw = lp.gateway ? ' • ' + lp.gateway : '';
+      document.getElementById('stat-last-meta').textContent = ago + ' • ' + lp.phone + gw;
+    } else {
+      document.getElementById('stat-last-amount').textContent = '—';
+      document.getElementById('stat-last-meta').textContent = 'لا توجد دفعات بعد';
+    }
+
     if (d.lastBroadcast) {
       document.getElementById('lastBroadcastCard').style.display = 'block';
       const b = d.lastBroadcast;
@@ -475,6 +512,14 @@ async function loadStats() {
     }
   } catch (err) { console.error(err); }
 }
+
+function relTimeAr(diffMs) {
+  if (diffMs < 60000)    return 'الآن';
+  if (diffMs < 3600000)  return 'منذ ' + Math.floor(diffMs / 60000) + ' د';
+  if (diffMs < 86400000) return 'منذ ' + Math.floor(diffMs / 3600000) + ' س';
+  return 'منذ ' + Math.floor(diffMs / 86400000) + ' يوم';
+}
+
 loadStats();
 setInterval(loadStats, 30000);
 
@@ -667,6 +712,7 @@ function renderTable(subs, total) {
       '<td class="phone"><a href="' + detailUrl + '" class="phone-link" onclick="event.stopPropagation()">' + escapeHtml(s.phone) + '</a></td>' +
       '<td>' + (escapeHtml(s.profile_name) || '<span class="muted">—</span>') + '</td>' +
       '<td>' + renderBadge(s.state) + '</td>' +
+      '<td>' + renderPaymentCell(s) + '</td>' +
       '<td>' + formatDate(s.first_contact_at) + '</td>' +
       '<td>' + (s.last_delivery_at ? formatDate(s.last_delivery_at) : '<span class="muted">—</span>') + '</td>' +
       '<td>' + (escapeHtml(s.internal_note) || '<span class="muted">—</span>') + '</td>' +
@@ -679,8 +725,41 @@ function renderTable(subs, total) {
     '<div style="overflow-x:auto"><table>' +
     '<thead><tr>' +
       '<th>الهاتف</th><th>الاسم</th><th>الحالة</th>' +
+      '<th>الدفع</th>' +
       '<th>أول تواصل</th><th>آخر إرسال</th><th>ملاحظة</th><th>إجراءات</th><th></th>' +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+// Compact payment cell: amount + relative age, plus a small expiry hint.
+// Pilot subscribers show "تجريبي" since they don't pay. Newly-active rows
+// without a payment show "—".
+function renderPaymentCell(s) {
+  if (s.subscription_plan === 'pilot') {
+    return '<span class="muted">تجريبي</span>';
+  }
+  if (!s.last_payment_at) {
+    return '<span class="muted">—</span>';
+  }
+  const amount = (s.last_payment_amount_kwd ? Number(s.last_payment_amount_kwd).toFixed(3) : '—') + ' د.ك';
+  const ago = relTimeArShort(Date.now() - s.last_payment_at);
+  // Expiry hint: amber dot if within 14d, red dot if expired
+  let hint = '';
+  if (s.subscription_end_at) {
+    const daysLeft = Math.floor((s.subscription_end_at - Date.now()) / 86400000);
+    if (daysLeft < 0)         hint = ' <span title="منتهي" style="color:#dc2626">●</span>';
+    else if (daysLeft <= 14)  hint = ' <span title="ينتهي قريباً" style="color:#f59e0b">●</span>';
+  }
+  return '<div><strong>' + amount + '</strong>' + hint + '</div>' +
+         '<div class="muted" style="font-size:12px">' + ago + '</div>';
+}
+
+function relTimeArShort(diffMs) {
+  if (diffMs < 60000)    return 'الآن';
+  if (diffMs < 3600000)  return 'منذ ' + Math.floor(diffMs / 60000) + ' د';
+  if (diffMs < 86400000) return 'منذ ' + Math.floor(diffMs / 3600000) + ' س';
+  if (diffMs < 30 * 86400000) return 'منذ ' + Math.floor(diffMs / 86400000) + ' يوم';
+  if (diffMs < 365 * 86400000) return 'منذ ' + Math.floor(diffMs / (30 * 86400000)) + ' شهر';
+  return 'منذ ' + Math.floor(diffMs / (365 * 86400000)) + ' سنة';
 }
 
 function openDetail(phone, event) {

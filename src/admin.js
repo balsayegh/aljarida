@@ -43,6 +43,7 @@ import {
   getEvents, getPayments, sendPaymentLinkAction,
 } from './admin_api_v2.js';
 import { timingSafeEqual } from './crypto_util.js';
+import { getKuwaitDateParts } from './date_util.js';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
@@ -272,13 +273,43 @@ async function signHmac(data, secret) {
 async function handleApiStats(env) {
   const now = Date.now();
 
-  const [active, total, newToday, unsubscribed, awaiting, lastBroadcast] = await Promise.all([
+  // Calendar-month start in Kuwait wallclock. Asia/Kuwait is UTC+3, no DST,
+  // so midnight Kuwait on day 1 = UTC midnight on day 1 minus 3 hours.
+  const kp = getKuwaitDateParts(new Date(now));
+  const monthStartMs = Date.UTC(kp.year, kp.month - 1, 1) - 3 * 60 * 60 * 1000;
+
+  // Stuck-pending threshold: a 'pending' intent older than an hour is
+  // suspicious — the customer either bailed or hit a problem. Worth
+  // surfacing on the dashboard.
+  const STUCK_PENDING_MS = 60 * 60 * 1000;
+
+  const [active, total, newToday, unsubscribed, awaiting, lastBroadcast,
+         monthPaid, stuckPending, lastPayment] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers WHERE state = 'active'`).first(),
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers`).first(),
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers WHERE first_contact_at > ?`).bind(now - 86400000).first(),
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers WHERE state = 'unsubscribed'`).first(),
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers WHERE state IN ('offered', 'yes', 'awaiting_payment')`).first(),
     env.DB.prepare(`SELECT * FROM broadcasts ORDER BY started_at DESC LIMIT 1`).first(),
+    // Paid this month: total + count. Treat NULL state as paid for legacy
+    // manual rows (admin "add payment" entries).
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(amount_kwd), 0) AS total_kwd, COUNT(*) AS c
+       FROM payments
+       WHERE payment_date >= ? AND (state = 'paid' OR state IS NULL)`
+    ).bind(monthStartMs).first(),
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c
+       FROM payment_intents
+       WHERE state = 'pending' AND created_at < ?`
+    ).bind(now - STUCK_PENDING_MS).first(),
+    env.DB.prepare(
+      `SELECT phone, amount_kwd, gateway, payment_date
+       FROM payments
+       WHERE state = 'paid' OR state IS NULL
+       ORDER BY payment_date DESC
+       LIMIT 1`
+    ).first(),
   ]);
 
   return jsonResponse({
@@ -295,6 +326,17 @@ async function handleApiStats(env) {
       target_count: lastBroadcast.target_count,
       started_at: lastBroadcast.started_at,
     } : null,
+    payments: {
+      month_total_kwd: monthPaid?.total_kwd || 0,
+      month_count:     monthPaid?.c         || 0,
+      stuck_pending:   stuckPending?.c      || 0,
+      last_payment:    lastPayment ? {
+        phone:        lastPayment.phone,
+        amount_kwd:   lastPayment.amount_kwd,
+        gateway:      lastPayment.gateway,
+        payment_date: lastPayment.payment_date,
+      } : null,
+    },
   });
 }
 
