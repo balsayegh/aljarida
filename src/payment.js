@@ -177,7 +177,7 @@ async function activatePaidSubscription(env, intent, payload) {
     await sendTextMessage(
       env,
       intent.phone,
-      `تم استلام دفعتك بنجاح ✅\n\nاشتراكك مفعّل لمدة سنة كاملة. شكراً لاختيارك جريدة الجريدة الرقمية.`
+      `تم استلام دفعتك بنجاح ✅\n\nتم تفعيل اشتراكك لمدة سنة كاملة. شكراً لاختيارك *جريدة الجريدة* النسخة الرقمية.`
     );
   } catch (err) {
     console.error('[ottu] activatePaidSubscription failed', err);
