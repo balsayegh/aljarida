@@ -226,6 +226,7 @@ export function pageShell(title, activePage, bodyHtml) {
   <div class="topnav-links">
     <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
     <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}">المشتركون</a>
+    <a href="/admin/payments" class="${activePage === 'payments' ? 'active' : ''}">الدفعات</a>
     <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}">سجل الإرسال</a>
     <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}">التنبيهات</a>
   </div>

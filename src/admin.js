@@ -35,6 +35,7 @@
 import { renderLoginPage } from './admin_pages.js';
 import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage, renderFailuresPage } from './admin_pages.js';
 import { renderSubscriberDetailPage } from './admin_subscriber_detail.js';
+import { renderPaymentsPage, handlePaymentsApi } from './admin_payments.js';
 import { handleBroadcast } from './admin_broadcast.js';
 import {
   getSubscriberDetail, extendSubscriptionAction, changePhoneAction,
@@ -72,6 +73,7 @@ export async function handleAdminRequest(request, env, ctx, url) {
   if (method === 'GET') {
     if (path === '/admin') return htmlResponse(renderDashboardPage());
     if (path === '/admin/subscribers') return htmlResponse(renderSubscribersPage());
+    if (path === '/admin/payments') return htmlResponse(renderPaymentsPage());
     if (path === '/admin/broadcasts') return htmlResponse(renderBroadcastsPage());
     if (path === '/admin/failures') return htmlResponse(renderFailuresPage());
 
@@ -162,6 +164,10 @@ export async function handleAdminRequest(request, env, ctx, url) {
 
   if (path === '/admin/api/failures' && method === 'GET') {
     return handleApiFailures(request, env);
+  }
+
+  if (path === '/admin/api/payments' && method === 'GET') {
+    return handlePaymentsApi(request, env);
   }
 
   return new Response('Not found', { status: 404 });
