@@ -21,6 +21,7 @@ import {
 } from './subscription.js';
 import { sendPhoneChangeVerification } from './whatsapp_v2.js';
 import { createAndSendCheckoutLink } from './payment.js';
+import { cancelCheckout } from './ottu.js';
 import { jsonResponse } from './admin.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -401,6 +402,52 @@ export async function sendPaymentLinkAction(request, env, phone) {
   }
 
   return jsonResponse({ error: result.error || 'فشل إنشاء رابط الدفع' }, 502);
+}
+
+/**
+ * POST /admin/api/payment-intents/:session_id/cancel
+ *
+ * Cancel an unpaid Ottu checkout session. Internal Ottu operation — no
+ * money has moved and no PG roundtrip. Idempotent: a second call on an
+ * already-canceled intent returns success.
+ *
+ * Refuses to touch a `paid` intent (operator should use refund instead,
+ * once that flow exists).
+ */
+export async function cancelPaymentIntentAction(request, env, sessionId) {
+  const intent = await env.DB.prepare(
+    `SELECT * FROM payment_intents WHERE session_id = ?`
+  ).bind(sessionId).first();
+
+  if (!intent) return jsonResponse({ error: 'الرابط غير موجود' }, 404);
+
+  if (intent.state === 'paid') {
+    return jsonResponse({
+      error: 'الرابط مدفوع بالفعل — لا يمكن إلغاؤه. استخدم الاسترداد بدلاً من ذلك.',
+    }, 409);
+  }
+
+  if (intent.state === 'canceled' || intent.state === 'cancelled') {
+    return jsonResponse({ success: true, already_canceled: true });
+  }
+
+  try {
+    await cancelCheckout(env, sessionId);
+  } catch (err) {
+    console.error(`[ottu] cancel failed for ${sessionId}:`, err);
+    return jsonResponse({ error: err.message || 'فشل إلغاء الرابط في Ottu' }, 502);
+  }
+
+  await env.DB.prepare(
+    `UPDATE payment_intents SET state = 'canceled' WHERE session_id = ?`
+  ).bind(sessionId).run();
+
+  await logEvent(env, intent.phone, 'payment_link_canceled', {
+    session_id: sessionId,
+    canceled_by: 'admin',
+  }, 'admin');
+
+  return jsonResponse({ success: true });
 }
 
 /**

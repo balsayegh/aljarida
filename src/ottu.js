@@ -112,6 +112,40 @@ export async function createCheckout(env, { phone, amountKwd, orderNo, customerF
 }
 
 /**
+ * Cancel an unpaid Ottu checkout session via the Operations API.
+ *
+ * Internal operation — no PG roundtrip, instant. Applicable to transactions
+ * in `created`, `pending`, `cod`, or `attempted` state. Ottu rejects cancel
+ * on `paid` (use refund) and `canceled` (already canceled — caller should
+ * treat as success).
+ *
+ * https://docs.ottu.net/developers/operations
+ */
+export async function cancelCheckout(env, sessionId) {
+  const baseUrl = env.OTTU_BASE_URL?.replace(/\/$/, '');
+  const apiKey = env.OTTU_API_KEY;
+  if (!baseUrl || !apiKey) {
+    throw new Error('Ottu config missing: need OTTU_BASE_URL, OTTU_API_KEY');
+  }
+
+  const res = await fetch(`${baseUrl}/b/pbl/v2/operation/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Api-Key ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ operation: 'cancel', session_id: sessionId }),
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Ottu cancel failed: ${res.status} ${text}`);
+  }
+
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+/**
  * Verify an Ottu webhook payload's HMAC-SHA256 signature.
  * Returns true iff the computed signature matches `payload.signature`.
  */

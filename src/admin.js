@@ -40,7 +40,7 @@ import { handleBroadcast } from './admin_broadcast.js';
 import {
   getSubscriberDetail, extendSubscriptionAction, changePhoneAction,
   addTagAction, removeTagAction, changePlanAction, addPaymentAction,
-  getEvents, getPayments, sendPaymentLinkAction,
+  getEvents, getPayments, sendPaymentLinkAction, cancelPaymentIntentAction,
 } from './admin_api_v2.js';
 import { timingSafeEqual } from './crypto_util.js';
 import { getKuwaitDateParts } from './date_util.js';
@@ -143,6 +143,13 @@ export async function handleAdminRequest(request, env, ctx, url) {
   const apiSendLinkMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/send-payment-link$/);
   if (apiSendLinkMatch && method === 'POST') {
     return sendPaymentLinkAction(request, env, apiSendLinkMatch[1]);
+  }
+
+  // Cancel an Ottu payment intent. session_id is hex (40 chars typically),
+  // so we accept any non-slash chars rather than constraining the pattern.
+  const apiCancelIntent = path.match(/^\/admin\/api\/payment-intents\/([^\/]+)\/cancel$/);
+  if (apiCancelIntent && method === 'POST') {
+    return cancelPaymentIntentAction(request, env, decodeURIComponent(apiCancelIntent[1]));
   }
 
   const apiEventsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/events$/);

@@ -311,7 +311,7 @@ function render(d) {
 
     html += '<table><thead><tr>' +
             '<th>التاريخ</th><th>المبلغ</th><th>الحالة</th><th>العمر</th>' +
-            '<th>المرجع (session_id)</th><th>الرابط</th>' +
+            '<th>المرجع (session_id)</th><th>الرابط</th><th>إجراءات</th>' +
             '</tr></thead><tbody>';
 
     d.payment_intents.forEach(function(pi) {
@@ -336,6 +336,14 @@ function render(d) {
         ? '<a href="' + escHtml(pi.checkout_url) + '" target="_blank" rel="noopener" class="view-link">فتح ↗</a>'
         : '<span class="muted">—</span>';
 
+      // Cancel only meaningful for unpaid + non-canceled rows. Ottu's cancel
+      // op accepts pending/created/attempted; we surface it on 'pending' which
+      // is by far the most common — others rarely happen for our flow.
+      const cancellable = pi.state === 'pending';
+      const actionCell = cancellable
+        ? '<button class="danger small" onclick="doCancelIntent(\\''+ escHtml(pi.session_id) +'\\')">إلغاء</button>'
+        : '<span class="muted">—</span>';
+
       html += '<tr>' +
               '<td>' + fmtDate(pi.created_at) + ' ' + fmtTime(pi.created_at) + '</td>' +
               '<td><strong>' + (pi.amount_kwd ? pi.amount_kwd.toFixed(3) : '—') + ' د.ك</strong></td>' +
@@ -343,6 +351,7 @@ function render(d) {
               '<td class="muted">' + age + '</td>' +
               '<td class="mono" title="' + escHtml(pi.session_id || '') + '">' + escHtml(shortId) + '</td>' +
               '<td>' + linkCell + '</td>' +
+              '<td>' + actionCell + '</td>' +
               '</tr>';
     });
 
@@ -558,6 +567,19 @@ async function setState(state) {
   else alert(d.error);
 }
 
+async function doCancelIntent(sessionId) {
+  if (!confirm('إلغاء رابط الدفع؟ لن يستطيع العميل استخدامه بعد ذلك.')) return;
+  const r = await fetch('/admin/api/payment-intents/' + encodeURIComponent(sessionId) + '/cancel', {
+    method: 'POST',
+  });
+  const d = await r.json();
+  if (d.success) {
+    loadDetail();
+    return;
+  }
+  alert(d.error || 'فشل الإلغاء');
+}
+
 async function doSendPaymentLink() {
   if (!confirm('سيتم إنشاء رابط دفع جديد عبر Ottu وإرساله للمشترك على واتساب. هل تريد المتابعة؟')) return;
   const r = await fetch('/admin/api/subscribers/' + phone + '/send-payment-link', {
@@ -626,7 +648,8 @@ function eventText(type, details) {
     phone_change_reverted: 'تم إلغاء تغيير الرقم (' + (details.reason || '') + ')',
     payment_received: 'تم استلام دفعة ' + (details.amount_kwd || 0) + ' د.ك (' + methodLabel(details.method) + ')',
     payment_link_sent: 'تم إرسال رابط دفع جديد (Ottu)',
-    payment_link_send_failed: 'فشل إرسال رابط الدفع — ' + (details.reason === 'whatsapp_send_failed' ? 'تعذّر التوصيل عبر واتساب' : 'خطأ'),
+    payment_link_send_failed: 'فشل إرسال رابط الدفع — ' + (details.reason === 'whatsapp_send_failed' ? 'تعذّر التوصيل عبر واتساب' : details.reason === 'csw_closed_no_template' ? 'العميل خارج نافذة 24 ساعة' : 'خطأ'),
+    payment_link_canceled: 'تم إلغاء رابط الدفع',
     plan_changed: 'تم تغيير الخطة من ' + (details.old_plan || '—') + ' إلى ' + (details.new_plan || '—'),
     reminder_sent: 'تم إرسال تذكير تجديد (' + (details.days_before || '?') + ' يوم قبل)',
     auto_paused_expired: 'تم التعليق تلقائياً (انتهاء الاشتراك)',
