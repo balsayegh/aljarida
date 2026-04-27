@@ -155,6 +155,19 @@ export function renderSubscriberDetailPage(phone) {
   </div>
 </div>
 
+<div class="modal" id="noteModal" style="display:none">
+  <div class="modal-backdrop" onclick="closeModal('noteModal')"></div>
+  <div class="modal-content">
+    <h2>تعديل الملاحظة الداخلية</h2>
+    <label>الملاحظة (اتركها فارغة لحذفها)</label>
+    <textarea id="noteInput" rows="4" placeholder="ملاحظة لا يراها العميل، للإدارة فقط" style="width:100%; padding:10px 14px; border:1px solid #d1d1d6; border-radius:8px; font-family:inherit; font-size:14px; resize:vertical"></textarea>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal('noteModal')">إلغاء</button>
+      <button class="primary" onclick="doSaveNote()">حفظ</button>
+    </div>
+  </div>
+</div>
+
 <style>
 .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
@@ -440,7 +453,10 @@ function render(d) {
   }
 
   // Notes
-  html += '<div class="section"><h3>📝 ملاحظات داخلية</h3>';
+  html += '<div class="section"><h3 style="display:flex; justify-content:space-between; align-items:center">' +
+          '<span>📝 ملاحظات داخلية</span>' +
+          '<button class="link-btn" onclick="openEditNote()">' + (sub.internal_note ? 'تعديل' : 'إضافة') + '</button>' +
+          '</h3>';
   html += '<div class="notes-box">' + (escHtml(sub.internal_note) || '<em class="muted">لا توجد ملاحظات</em>') + '</div>';
   html += '</div>';
 
@@ -565,6 +581,25 @@ async function setState(state) {
   const d = await r.json();
   if (d.success) loadDetail();
   else alert(d.error);
+}
+
+function openEditNote() {
+  document.getElementById('noteInput').value = (currentSubscriber && currentSubscriber.internal_note) || '';
+  openModal('noteModal');
+  // Focus the textarea so admin can start typing immediately
+  setTimeout(() => document.getElementById('noteInput').focus(), 50);
+}
+
+async function doSaveNote() {
+  // Empty string = clear the note. We still send it (vs leaving as-is).
+  const note = document.getElementById('noteInput').value.trim();
+  const r = await fetch('/admin/api/subscribers/' + phone, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+  const d = await r.json();
+  if (d.success) { closeModal('noteModal'); loadDetail(); }
+  else alert(d.error || 'فشل حفظ الملاحظة');
 }
 
 async function doCancelIntent(sessionId) {
