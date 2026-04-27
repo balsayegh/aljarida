@@ -51,10 +51,27 @@ export async function createCheckout(env, { phone, amountKwd, orderNo, customerF
     throw new Error('Ottu config missing: need OTTU_BASE_URL, OTTU_API_KEY, WORKER_BASE_URL');
   }
 
+  const amountStr = amountKwd.toFixed(3);
+
+  // Production Ottu plugin config marks merchant_defined_data 3-8 and 20 as
+  // required. Ottu rejects the create call without them ("This field is
+  // required"). We don't actually use these slots downstream — they exist
+  // only to satisfy the plugin's required-field check — so we populate them
+  // with sensible non-empty values derived from what we already have.
+  const extra = {
+    merchant_defined_data3: phone,
+    merchant_defined_data4: 'yearly',
+    merchant_defined_data5: amountStr,
+    merchant_defined_data6: orderNo,
+    merchant_defined_data7: 'whatsapp',
+    merchant_defined_data8: customerFirstName || phone,
+    merchant_defined_data20: 'aljarida',
+  };
+
   const body = {
     type: 'e_commerce',
     pg_codes: pgCodes,
-    amount: amountKwd.toFixed(3),
+    amount: amountStr,
     currency_code: 'KWD',
     customer_phone: phone,
     customer_id: phone,
@@ -62,6 +79,7 @@ export async function createCheckout(env, { phone, amountKwd, orderNo, customerF
     webhook_url: `${workerBase}/payment/webhook`,
     redirect_url: `${workerBase}/payment/success`,
     payment_type: 'one_off',
+    extra,
     ...(customerFirstName ? { customer_first_name: customerFirstName } : {}),
   };
 

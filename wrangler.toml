@@ -14,12 +14,12 @@ database_id = "58c39bb5-bc17-478d-86ba-4f2d502ff537"
 ALJARIDA_PDF_BASE_URL = "https://www.aljarida.com/uploads/pdf"
 TIMEZONE = "Asia/Kuwait"
 
-# Ottu payment gateway (sandbox by default — flip to prod URL when ready).
+# Ottu payment gateway — production.
 # OTTU_API_KEY and OTTU_WEBHOOK_SECRET are stored as wrangler secrets.
 # WORKER_BASE_URL is the public URL of this Worker, used to build webhook_url
-# and redirect_url passed to Ottu — set it after the first deploy.
-OTTU_BASE_URL = "https://sandbox.ottu.net"
-OTTU_PG_CODES = "knet"
+# and redirect_url passed to Ottu.
+OTTU_BASE_URL = "https://pay.aljarida.com"
+OTTU_PG_CODES = "credit-card,knet"
 WORKER_BASE_URL = "https://aljarida-whatsapp.mnakh.workers.dev"
 
 # Daily cron — 10 AM Kuwait time (7 AM UTC)
