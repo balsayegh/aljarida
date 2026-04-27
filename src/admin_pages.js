@@ -683,7 +683,7 @@ export function renderSubscribersPage() {
     </div>
     <div id="giftDaysWrapAdd" style="display:none">
       <label>مدة الاشتراك المجاني (أيام)</label>
-      <input type="number" id="newGiftDays" value="90" min="1" max="3650">
+      <input type="number" id="newGiftDays" value="7" min="1" max="3650">
     </div>
   </div>
 
@@ -855,7 +855,7 @@ async function addSubscriber() {
   const type    = document.getElementById('newType').value;
   const consent = document.getElementById('newConsent').checked;
   const giftDaysRaw = document.getElementById('newGiftDays').value;
-  const gift_days = parseInt(giftDaysRaw, 10) || 90;
+  const gift_days = parseInt(giftDaysRaw, 10) || 7;
 
   if (!phone || !/^\\d{10,15}$/.test(phone)) {
     showAlert('addStatus', 'الرجاء إدخال رقم صحيح (10-15 رقم بدون +)', 'error');

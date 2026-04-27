@@ -397,7 +397,7 @@ async function handleApiSubscriberAdd(request, env) {
     const { phone, name, note } = body;
     const type = body.type || 'paid';
     const consented = !!body.consented;
-    const giftDays = Number.isFinite(body.gift_days) ? Math.floor(body.gift_days) : 90;
+    const giftDays = Number.isFinite(body.gift_days) ? Math.floor(body.gift_days) : 7;
 
     if (!phone || !/^\d{10,15}$/.test(phone)) {
       return jsonResponse({ error: 'Phone must be 10-15 digits, no + sign' }, 400);

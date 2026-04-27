@@ -10,7 +10,14 @@
  */
 
 import { sendRenewalReminder } from './whatsapp_v2.js';
-import { logEvent, formatDaysRemaining, PLAN_PILOT } from './subscription.js';
+import { logEvent, formatDaysRemaining } from './subscription.js';
+
+// Plans that never receive automated renewal reminders. The reminder
+// template's body says "12 د.ك / سنوياً" — appropriate for paid yearly
+// expiring subscribers, misleading for free ones:
+//   - pilot: never expires anyway
+//   - gift:  admin-given freebie; pestering them to renew at 12 KWD is bad UX
+const PLANS_NO_REMINDERS = ['pilot', 'gift'];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const BROADCAST_RETENTION_DAYS = 90;
@@ -55,17 +62,19 @@ async function sendRenewalReminders(env) {
   // already received their 7-day reminder. The ±1 day window (vs the old
   // ±12 hours) lets us recover if a single cron run is missed.
   // Idempotency is guaranteed by last_reminder_days_before != 7.
+  // PLANS_NO_REMINDERS excludes pilot/gift (see top of file).
+  const noReminderPlaceholders = PLANS_NO_REMINDERS.map(() => '?').join(',');
   const { results: seven } = await env.DB.prepare(
     `SELECT phone, profile_name, subscription_end_at, last_reminder_days_before, last_reminder_sent_at
      FROM subscribers
      WHERE state = 'active'
-       AND subscription_plan != ?
+       AND subscription_plan NOT IN (${noReminderPlaceholders})
        AND subscription_end_at IS NOT NULL
        AND subscription_end_at BETWEEN ? AND ?
        AND (last_reminder_days_before IS NULL OR last_reminder_days_before != 7
             OR last_reminder_sent_at < ?)`
   ).bind(
-    PLAN_PILOT,
+    ...PLANS_NO_REMINDERS,
     now + 6 * DAY_MS,
     now + 8 * DAY_MS,
     now - 6 * DAY_MS  // allow re-send only if the last 7-day reminder was >6 days ago
@@ -91,12 +100,12 @@ async function sendRenewalReminders(env) {
     `SELECT phone, profile_name, subscription_end_at, last_reminder_days_before, last_reminder_sent_at
      FROM subscribers
      WHERE state = 'active'
-       AND subscription_plan != ?
+       AND subscription_plan NOT IN (${noReminderPlaceholders})
        AND subscription_end_at IS NOT NULL
        AND subscription_end_at BETWEEN ? AND ?
        AND (last_reminder_days_before IS NULL OR last_reminder_days_before != 1)`
   ).bind(
-    PLAN_PILOT,
+    ...PLANS_NO_REMINDERS,
     now,
     now + 2 * DAY_MS
   ).all();
