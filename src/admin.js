@@ -39,7 +39,7 @@ import { handleBroadcast } from './admin_broadcast.js';
 import {
   getSubscriberDetail, extendSubscriptionAction, changePhoneAction,
   addTagAction, removeTagAction, changePlanAction, addPaymentAction,
-  getEvents, getPayments,
+  getEvents, getPayments, sendPaymentLinkAction,
 } from './admin_api_v2.js';
 import { timingSafeEqual } from './crypto_util.js';
 
@@ -135,6 +135,11 @@ export async function handleAdminRequest(request, env, ctx, url) {
   if (apiPaymentsMatch) {
     if (method === 'POST') return addPaymentAction(request, env, apiPaymentsMatch[1]);
     if (method === 'GET') return getPayments(request, env, apiPaymentsMatch[1]);
+  }
+
+  const apiSendLinkMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/send-payment-link$/);
+  if (apiSendLinkMatch && method === 'POST') {
+    return sendPaymentLinkAction(request, env, apiSendLinkMatch[1]);
   }
 
   const apiEventsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/events$/);

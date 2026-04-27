@@ -280,6 +280,9 @@ function render(d) {
   html += '<div class="actions-bar">';
   html += '<button class="primary small" onclick="openModal(\\'extendModal\\')">تمديد الاشتراك</button>';
   html += '<button class="primary small" onclick="openModal(\\'paymentModal\\')">إضافة دفعة</button>';
+  if (sub.state !== 'unsubscribed') {
+    html += '<button class="secondary small" onclick="doSendPaymentLink()">إرسال رابط دفع</button>';
+  }
   html += '<button class="secondary small" onclick="openPhoneChange()">تغيير الرقم</button>';
   html += '<button class="secondary small" onclick="openModal(\\'planModal\\'); document.getElementById(\\'planSelect\\').value = \\''+ (sub.subscription_plan || 'yearly') +'\\';">تغيير الخطة</button>';
   html += '<button class="secondary small" onclick="openModal(\\'tagModal\\')">إضافة وسم</button>';
@@ -287,6 +290,64 @@ function render(d) {
   if (sub.state === 'paused') html += '<button class="primary small" onclick="setState(\\'active\\')">تفعيل</button>';
   if (sub.state !== 'unsubscribed') html += '<button class="danger" onclick="setState(\\'unsubscribed\\')">إلغاء الاشتراك</button>';
   html += '</div>';
+
+  // Payment intents (Ottu checkout sessions — pending + recent history)
+  if (d.payment_intents && d.payment_intents.length > 0) {
+    // Surface pending intents older than 1 hour as a small heads-up
+    const STALE_PENDING_MS = 60 * 60 * 1000;
+    const now = Date.now();
+    const stalePending = d.payment_intents.filter(function(pi) {
+      return pi.state === 'pending' && (now - pi.created_at) > STALE_PENDING_MS;
+    });
+
+    html += '<div class="section"><h3>🔗 محاولات الدفع (Ottu)</h3>';
+
+    if (stalePending.length > 0) {
+      html += '<div class="alert-info" style="margin-bottom:12px;padding:10px 14px;border-radius:8px">' +
+              '⚠ يوجد ' + stalePending.length + ' محاولة دفع معلّقة منذ أكثر من ساعة. ' +
+              'قد يكون العميل أنشأ الرابط ولم يكمل الدفع.' +
+              '</div>';
+    }
+
+    html += '<table><thead><tr>' +
+            '<th>التاريخ</th><th>المبلغ</th><th>الحالة</th><th>العمر</th>' +
+            '<th>المرجع (session_id)</th><th>الرابط</th>' +
+            '</tr></thead><tbody>';
+
+    d.payment_intents.forEach(function(pi) {
+      let stateBadge;
+      if (pi.state === 'paid') stateBadge = '<span class="badge badge-delivered">مدفوع</span>';
+      else if (pi.state === 'pending') stateBadge = '<span class="badge badge-awaiting_payment">معلّق</span>';
+      else if (pi.state === 'failed' || pi.state === 'error') stateBadge = '<span class="badge badge-failed">فشل</span>';
+      else if (pi.state === 'canceled' || pi.state === 'cancelled') stateBadge = '<span class="badge badge-failed">ملغى</span>';
+      else if (pi.state === 'expired') stateBadge = '<span class="badge badge-failed">منتهي</span>';
+      else stateBadge = '<span class="badge">' + escHtml(pi.state || '?') + '</span>';
+
+      const ageMs = now - pi.created_at;
+      let age;
+      if (ageMs < 60000) age = 'الآن';
+      else if (ageMs < 3600000) age = Math.floor(ageMs / 60000) + ' د';
+      else if (ageMs < 86400000) age = Math.floor(ageMs / 3600000) + ' س';
+      else age = Math.floor(ageMs / 86400000) + ' ي';
+
+      // Truncated session_id for readability; full id in tooltip
+      const shortId = pi.session_id ? pi.session_id.slice(0, 12) + '…' : '—';
+      const linkCell = pi.checkout_url
+        ? '<a href="' + escHtml(pi.checkout_url) + '" target="_blank" rel="noopener" class="view-link">فتح ↗</a>'
+        : '<span class="muted">—</span>';
+
+      html += '<tr>' +
+              '<td>' + fmtDate(pi.created_at) + ' ' + fmtTime(pi.created_at) + '</td>' +
+              '<td><strong>' + (pi.amount_kwd ? pi.amount_kwd.toFixed(3) : '—') + ' د.ك</strong></td>' +
+              '<td>' + stateBadge + '</td>' +
+              '<td class="muted">' + age + '</td>' +
+              '<td class="mono" title="' + escHtml(pi.session_id || '') + '">' + escHtml(shortId) + '</td>' +
+              '<td>' + linkCell + '</td>' +
+              '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+  }
 
   // Payment history
   html += '<div class="section"><h3>💰 سجل الدفعات</h3>';
@@ -497,6 +558,27 @@ async function setState(state) {
   else alert(d.error);
 }
 
+async function doSendPaymentLink() {
+  if (!confirm('سيتم إنشاء رابط دفع جديد عبر Ottu وإرساله للمشترك على واتساب. هل تريد المتابعة؟')) return;
+  const r = await fetch('/admin/api/subscribers/' + phone + '/send-payment-link', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  });
+  const d = await r.json();
+  if (d.success) {
+    alert('تم إرسال رابط الدفع ✓');
+    loadDetail();
+    return;
+  }
+  // Partial success: link created in Ottu but WhatsApp send failed (e.g. outside 24h CSW).
+  // Show the URL so admin can copy/paste manually.
+  if (d.checkout_url) {
+    prompt(d.error + '\\n\\nيمكنك نسخ الرابط يدوياً:', d.checkout_url);
+    loadDetail();
+    return;
+  }
+  alert(d.error || 'فشل إرسال رابط الدفع');
+}
+
 // --- Helpers ---
 function escHtml(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -543,6 +625,8 @@ function eventText(type, details) {
     phone_change_rejected: 'تم رفض تغيير الرقم',
     phone_change_reverted: 'تم إلغاء تغيير الرقم (' + (details.reason || '') + ')',
     payment_received: 'تم استلام دفعة ' + (details.amount_kwd || 0) + ' د.ك (' + methodLabel(details.method) + ')',
+    payment_link_sent: 'تم إرسال رابط دفع جديد (Ottu)',
+    payment_link_send_failed: 'فشل إرسال رابط الدفع — ' + (details.reason === 'whatsapp_send_failed' ? 'تعذّر التوصيل عبر واتساب' : 'خطأ'),
     plan_changed: 'تم تغيير الخطة من ' + (details.old_plan || '—') + ' إلى ' + (details.new_plan || '—'),
     reminder_sent: 'تم إرسال تذكير تجديد (' + (details.days_before || '?') + ' يوم قبل)',
     auto_paused_expired: 'تم التعليق تلقائياً (انتهاء الاشتراك)',

@@ -12,9 +12,69 @@
  * redirect_url. Anything else keeps them on the Ottu summary page.
  */
 
-import { verifyOttuSignature } from './ottu.js';
+import { createCheckout, verifyOttuSignature } from './ottu.js';
 import { recordPayment, PRICING, PLAN_YEARLY } from './subscription.js';
 import { sendTextMessage } from './whatsapp.js';
+import { messages as t } from './templates.js';
+
+/**
+ * Create a fresh Ottu checkout for a subscriber, persist a payment_intents
+ * row, and send the checkout link over WhatsApp.
+ *
+ * Shared between:
+ *  - the inbound WhatsApp flow (subscriber clicked نعم)
+ *  - the admin "send payment link" button (support-initiated resend)
+ *
+ * Returns:
+ *   { success: true,  sessionId, checkoutUrl }   on Ottu+WhatsApp success
+ *   { success: false, error }                    on any failure (already
+ *                                                logged; caller decides
+ *                                                whether to surface to user)
+ *
+ * On Ottu failure we ALSO send a fallback Arabic message to the subscriber
+ * (free-form, requires open 24h CSW) so they don't get silence after tapping
+ * yes. The admin caller can ignore this and just read `success`.
+ */
+export async function createAndSendCheckoutLink(env, phone, subscriber) {
+  const plan = PLAN_YEARLY;
+  const amountKwd = PRICING[plan];
+  const orderNo = `aljarida-${phone}-${Date.now()}`;
+
+  let checkout;
+  try {
+    checkout = await createCheckout(env, {
+      phone,
+      amountKwd,
+      orderNo,
+      customerFirstName: subscriber?.profile_name || undefined,
+    });
+  } catch (err) {
+    console.error(`[ottu] checkout creation failed for ${phone}:`, err);
+    // Best-effort customer-facing fallback; ignore its own errors.
+    sendTextMessage(env, phone, t.paymentPromptFallback).catch(() => {});
+    return { success: false, error: err.message || 'Ottu checkout creation failed' };
+  }
+
+  const { session_id, checkout_url } = checkout;
+
+  await env.DB.prepare(
+    `INSERT INTO payment_intents
+      (session_id, order_no, phone, amount_kwd, plan, state, checkout_url, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
+  ).bind(session_id, orderNo, phone, amountKwd, plan, checkout_url, Date.now()).run();
+
+  try {
+    await sendTextMessage(env, phone, `${t.paymentPromptIntro}\n\n${checkout_url}\n\n${t.paymentPromptOutro}`);
+  } catch (err) {
+    // The intent row is already persisted; the link is real and usable. We
+    // surface this so the admin caller can warn ("created but couldn't
+    // deliver — likely outside 24h CSW window").
+    console.error(`[ottu] checkout WhatsApp send failed for ${phone}:`, err);
+    return { success: false, sessionId: session_id, checkoutUrl: checkout_url, error: 'whatsapp_send_failed' };
+  }
+
+  return { success: true, sessionId: session_id, checkoutUrl: checkout_url };
+}
 
 export async function handleOttuWebhook(request, env, ctx) {
   let payload;

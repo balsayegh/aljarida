@@ -9,8 +9,7 @@
 import { sendTextMessage, sendOfferWithButtons } from './whatsapp.js';
 import { messages as t } from './templates.js';
 import { handleTemplateButtonReply } from './webhook_v2.js';
-import { createCheckout } from './ottu.js';
-import { PRICING, PLAN_YEARLY } from './subscription.js';
+import { createAndSendCheckoutLink } from './payment.js';
 
 export async function handleInboundMessage(message, contacts, env) {
   const from = message.from;
@@ -182,34 +181,13 @@ async function handleReturningPayer(env, phone, subscriber, message) {
 }
 
 /**
- * Create a fresh Ottu checkout for this subscriber and send the link.
- * Records a payment_intents row so the webhook can later look it up by session_id.
- * Falls back to a friendly error message if Ottu is unreachable / misconfigured.
+ * Thin wrapper for the inbound flow — delegates to payment.js so the same
+ * intent-create + WhatsApp-send path is shared with the admin "send link"
+ * button. Errors are already handled (logged + fallback message sent) inside
+ * the helper, so we don't surface the result here.
  */
 async function sendCheckoutLink(env, phone, subscriber) {
-  const plan = PLAN_YEARLY;
-  const amountKwd = PRICING[plan];
-  const orderNo = `aljarida-${phone}-${Date.now()}`;
-
-  try {
-    const { session_id, checkout_url } = await createCheckout(env, {
-      phone,
-      amountKwd,
-      orderNo,
-      customerFirstName: subscriber?.profile_name || undefined,
-    });
-
-    await env.DB.prepare(
-      `INSERT INTO payment_intents
-        (session_id, order_no, phone, amount_kwd, plan, state, checkout_url, created_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
-    ).bind(session_id, orderNo, phone, amountKwd, plan, checkout_url, Date.now()).run();
-
-    await sendTextMessage(env, phone, `${t.paymentPromptIntro}\n\n${checkout_url}\n\n${t.paymentPromptOutro}`);
-  } catch (err) {
-    console.error(`[ottu] checkout creation failed for ${phone}:`, err);
-    await sendTextMessage(env, phone, t.paymentPromptFallback);
-  }
+  await createAndSendCheckoutLink(env, phone, subscriber);
 }
 
 async function handleActiveSubscriber(env, phone, subscriber, message) {

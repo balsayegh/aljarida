@@ -20,6 +20,7 @@ import {
   PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT,
 } from './subscription.js';
 import { sendPhoneChangeVerification } from './whatsapp_v2.js';
+import { createAndSendCheckoutLink } from './payment.js';
 import { jsonResponse } from './admin.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +48,18 @@ export async function getSubscriberDetail(request, env, phone) {
   // Get payments
   const { results: payments } = await env.DB.prepare(
     `SELECT * FROM payments WHERE phone = ? ORDER BY payment_date DESC`
+  ).bind(phone).all();
+
+  // Get recent Ottu checkout intents (in-flight + history). The big
+  // raw_webhook blob is intentionally excluded — admin UI doesn't need it
+  // and it can be 10s of KB per row.
+  const { results: paymentIntents } = await env.DB.prepare(
+    `SELECT session_id, order_no, amount_kwd, plan, state, checkout_url,
+            created_at, paid_at
+     FROM payment_intents
+     WHERE phone = ?
+     ORDER BY created_at DESC
+     LIMIT 10`
   ).bind(phone).all();
 
   // Get recent broadcast deliveries
@@ -84,6 +97,7 @@ export async function getSubscriberDetail(request, env, phone) {
     },
     events,
     payments,
+    payment_intents: paymentIntents,
     recent_deliveries: deliveries.slice(0, 10),
   });
 }
@@ -337,6 +351,47 @@ export async function addPaymentAction(request, env, phone) {
   } catch (err) {
     return jsonResponse({ error: err.message }, 400);
   }
+}
+
+/**
+ * POST /admin/api/subscribers/:phone/send-payment-link
+ *
+ * Admin-initiated resend of an Ottu checkout link. Creates a fresh
+ * payment_intents row and sends the link over WhatsApp. Refuses on
+ * unsubscribed subscribers (don't bypass opt-out).
+ */
+export async function sendPaymentLinkAction(request, env, phone) {
+  const sub = await env.DB.prepare(`SELECT * FROM subscribers WHERE phone = ?`).bind(phone).first();
+  if (!sub) return jsonResponse({ error: 'المشترك غير موجود' }, 404);
+  if (sub.state === 'unsubscribed') {
+    return jsonResponse({ error: 'لا يمكن إرسال رابط دفع لمن ألغى الاشتراك' }, 409);
+  }
+
+  const result = await createAndSendCheckoutLink(env, phone, sub);
+
+  if (result.success) {
+    await logEvent(env, phone, 'payment_link_sent', {
+      session_id: result.sessionId,
+      sent_by: 'admin',
+    }, 'admin');
+    return jsonResponse({ success: true, session_id: result.sessionId, checkout_url: result.checkoutUrl });
+  }
+
+  // Distinguish "Ottu refused" (Ottu down / config issue) from "WhatsApp send
+  // failed" (subscriber outside 24h CSW). The latter still leaves a usable
+  // checkout_url the admin can copy/paste manually.
+  if (result.error === 'whatsapp_send_failed') {
+    await logEvent(env, phone, 'payment_link_send_failed', {
+      session_id: result.sessionId,
+      reason: 'whatsapp_send_failed',
+    }, 'admin');
+    return jsonResponse({
+      error: 'تم إنشاء الرابط في Ottu لكن فشل إرساله عبر واتساب (قد يكون خارج نافذة 24 ساعة). الرابط:',
+      checkout_url: result.checkoutUrl,
+    }, 502);
+  }
+
+  return jsonResponse({ error: result.error || 'فشل إنشاء رابط الدفع' }, 502);
 }
 
 /**
