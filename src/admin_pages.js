@@ -657,7 +657,9 @@ export function renderSubscribersPage() {
 
 <div class="card">
   <h2>إضافة مشترك يدوياً</h2>
-  <p class="muted" style="margin:0 0 16px">للمرحلة التجريبية — يُضاف المشترك كنشط مباشرةً دون الدفع.</p>
+  <p class="muted" style="margin:0 0 16px">
+    أضف مشتركاً مدفوعاً (يصله رابط الدفع)، تجريبياً، أو مجانياً (يصله ترحيب).
+  </p>
 
   <div class="grid-2">
     <div>
@@ -665,15 +667,37 @@ export function renderSubscribersPage() {
       <input type="tel" id="newPhone" placeholder="965XXXXXXXX" dir="ltr">
     </div>
     <div>
-      <label>الاسم (اختياري)</label>
+      <label>الاسم (اختياري — يظهر في الرسالة)</label>
       <input type="text" id="newName" placeholder="أحمد السالم">
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <label>النوع</label>
+      <select id="newType" onchange="onAddTypeChange()">
+        <option value="paid">مشترك (يدفع 12 د.ك سنوياً)</option>
+        <option value="tester">تجريبي (مجاني، 365 يوماً)</option>
+        <option value="gift">مجاني (هدية، مدة قابلة للتعديل)</option>
+      </select>
+    </div>
+    <div id="giftDaysWrapAdd" style="display:none">
+      <label>مدة الاشتراك المجاني (أيام)</label>
+      <input type="number" id="newGiftDays" value="90" min="1" max="3650">
     </div>
   </div>
 
   <label>ملاحظة داخلية (اختياري)</label>
   <input type="text" id="newNote" placeholder="مثال: فريق التحرير">
 
-  <button class="primary" onclick="addSubscriber()">إضافة</button>
+  <div id="paidConsentWrap" style="margin-top:8px">
+    <label style="display:flex; align-items:center; gap:8px; font-weight:normal">
+      <input type="checkbox" id="newConsent">
+      <span>أؤكد أن العميل أبدى موافقته على الاشتراك ودفع الرسوم</span>
+    </label>
+  </div>
+
+  <button class="primary" onclick="addSubscriber()" style="margin-top:12px">إضافة</button>
 
   <div class="alert" id="addStatus" style="display:none; margin-top:16px"></div>
 </div>
@@ -818,13 +842,31 @@ async function deleteSub(phone) {
   } catch (err) { alert(err.message); }
 }
 
+function onAddTypeChange() {
+  const t = document.getElementById('newType').value;
+  document.getElementById('giftDaysWrapAdd').style.display = t === 'gift' ? 'block' : 'none';
+  document.getElementById('paidConsentWrap').style.display  = t === 'paid' ? 'block' : 'none';
+}
+
 async function addSubscriber() {
-  const phone = document.getElementById('newPhone').value.trim();
-  const name = document.getElementById('newName').value.trim();
-  const note = document.getElementById('newNote').value.trim();
+  const phone   = document.getElementById('newPhone').value.trim();
+  const name    = document.getElementById('newName').value.trim();
+  const note    = document.getElementById('newNote').value.trim();
+  const type    = document.getElementById('newType').value;
+  const consent = document.getElementById('newConsent').checked;
+  const giftDaysRaw = document.getElementById('newGiftDays').value;
+  const gift_days = parseInt(giftDaysRaw, 10) || 90;
 
   if (!phone || !/^\\d{10,15}$/.test(phone)) {
     showAlert('addStatus', 'الرجاء إدخال رقم صحيح (10-15 رقم بدون +)', 'error');
+    return;
+  }
+  if (type === 'paid' && !consent) {
+    showAlert('addStatus', 'يجب تأكيد موافقة العميل قبل إنشاء رابط الدفع', 'error');
+    return;
+  }
+  if (type === 'gift' && (gift_days < 1 || gift_days > 3650)) {
+    showAlert('addStatus', 'مدة الاشتراك المجاني يجب أن تكون بين 1 و 3650 يوماً', 'error');
     return;
   }
 
@@ -832,15 +874,20 @@ async function addSubscriber() {
     const r = await fetch('/admin/api/subscribers/add', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, name, note }),
+      body: JSON.stringify({ phone, name, note, type, gift_days, consented: consent }),
     });
     const d = await r.json();
 
     if (d.success) {
-      showAlert('addStatus', 'تمت الإضافة بنجاح', 'success');
+      let msg = 'تمت الإضافة بنجاح';
+      if (d.payment_link_status === 'sent')          msg += ' — أُرسل رابط الدفع';
+      else if (d.payment_link_status === 'fallback') msg += ' — أُنشئ الرابط لكن تعذّر الإرسال (راجع تفاصيل المشترك)';
+      else if (d.gift_welcome_skipped)               msg += ' — لم يتم إرسال الترحيب (القالب غير مفعّل)';
+      showAlert('addStatus', msg, 'success');
       document.getElementById('newPhone').value = '';
       document.getElementById('newName').value = '';
       document.getElementById('newNote').value = '';
+      document.getElementById('newConsent').checked = false;
       loadSubscribers();
     } else {
       showAlert('addStatus', d.error || 'فشل الإضافة', 'error');

@@ -44,6 +44,8 @@ import {
 } from './admin_api_v2.js';
 import { timingSafeEqual } from './crypto_util.js';
 import { getKuwaitDateParts } from './date_util.js';
+import { createAndSendCheckoutLink } from './payment.js';
+import { sendGiftWelcomeTemplate } from './whatsapp.js';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
@@ -391,17 +393,30 @@ async function handleApiSubscribersList(request, env) {
 
 async function handleApiSubscriberAdd(request, env) {
   try {
-    const { phone, name, note } = await request.json();
+    const body = await request.json();
+    const { phone, name, note } = body;
+    const type = body.type || 'paid';
+    const consented = !!body.consented;
+    const giftDays = Number.isFinite(body.gift_days) ? Math.floor(body.gift_days) : 90;
 
     if (!phone || !/^\d{10,15}$/.test(phone)) {
       return jsonResponse({ error: 'Phone must be 10-15 digits, no + sign' }, 400);
     }
+    if (!['paid', 'tester', 'gift'].includes(type)) {
+      return jsonResponse({ error: 'Invalid type' }, 400);
+    }
+    if (type === 'paid' && !consented) {
+      return jsonResponse({ error: 'Admin must confirm subscriber consent for paid type' }, 400);
+    }
+    if (type === 'gift' && (giftDays < 1 || giftDays > 3650)) {
+      return jsonResponse({ error: 'gift_days must be between 1 and 3650' }, 400);
+    }
 
     const now = Date.now();
     const cleanPhone = phone.replace(/\D/g, '');
+    const DAY = 24 * 60 * 60 * 1000;
 
     // Don't silently reactivate someone who opted out — Meta compliance & UX.
-    // Admin can explicitly reactivate from the subscriber detail page if intended.
     const existing = await env.DB.prepare(
       'SELECT state FROM subscribers WHERE phone = ?'
     ).bind(cleanPhone).first();
@@ -410,42 +425,124 @@ async function handleApiSubscriberAdd(request, env) {
         error: 'هذا الرقم سبق أن ألغى الاشتراك. افتح صفحة تفاصيله واضغط "تفعيل" لإعادة تفعيله.'
       }, 409);
     }
+    if (existing && existing.state === 'active') {
+      return jsonResponse({
+        error: 'هذا الرقم نشط بالفعل. افتح صفحة تفاصيله للتعديل.'
+      }, 409);
+    }
 
-    // Detect pilot/test subscribers from note and auto-tag
-    // Default paid plan is yearly (12 KWD/year, 365 days)
-    const isPilot = note && /pilot|test|تجريب/i.test(note);
-    const plan = isPilot ? 'pilot' : 'yearly';
-    const tags = isPilot ? '["pilot"]' : '[]';
-    const endAt = now + 365 * 24 * 60 * 60 * 1000;  // 365 days for both pilot and yearly
+    // Per-type config: state on insert, plan code, tags, end_at, consent_log type
+    let dbState, plan, tagsJson, endAt;
+    let consentType, consentText;
+    if (type === 'paid') {
+      // Insert as awaiting_payment with NO end_at — webhook will set it after payment
+      dbState = 'awaiting_payment';
+      plan = 'yearly';
+      tagsJson = '[]';
+      endAt = null;
+      consentType = 'paid_admin_initiated';
+      consentText = 'Admin initiated paid subscription with attested customer consent';
+    } else if (type === 'tester') {
+      dbState = 'active';
+      plan = 'pilot';
+      tagsJson = '["pilot"]';
+      endAt = now + 365 * DAY;
+      consentType = 'pilot_manual_add';
+      consentText = 'Manually added by admin (tester)';
+    } else {
+      // gift
+      dbState = 'active';
+      plan = 'gift';
+      tagsJson = '[]';
+      endAt = now + giftDays * DAY;
+      consentType = 'gift_admin_added';
+      consentText = `Admin added free gift subscription (${giftDays} days)`;
+    }
 
+    // For paid: subscription_start_at and end_at stay NULL until webhook fires.
+    // For gift/tester: set start=now, end=computed.
     await env.DB.prepare(
-      `INSERT INTO subscribers (phone, state, tier, profile_name, internal_note, first_contact_at, activated_at, updated_at, subscription_plan, subscription_start_at, subscription_end_at, tags)
-       VALUES (?, 'active', 'standard', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO subscribers (
+         phone, state, tier, profile_name, internal_note,
+         first_contact_at, activated_at, updated_at,
+         subscription_plan, subscription_start_at, subscription_end_at, tags
+       )
+       VALUES (?, ?, 'standard', ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(phone) DO UPDATE SET
-         state = 'active',
-         profile_name = COALESCE(?, profile_name),
-         internal_note = COALESCE(?, internal_note),
-         activated_at = COALESCE(activated_at, ?),
-         updated_at = ?`
+         state = excluded.state,
+         profile_name = COALESCE(excluded.profile_name, profile_name),
+         internal_note = COALESCE(excluded.internal_note, internal_note),
+         activated_at = COALESCE(activated_at, excluded.activated_at),
+         updated_at = excluded.updated_at,
+         subscription_plan = excluded.subscription_plan,
+         subscription_start_at = COALESCE(excluded.subscription_start_at, subscription_start_at),
+         subscription_end_at = COALESCE(excluded.subscription_end_at, subscription_end_at),
+         tags = excluded.tags`
     ).bind(
-      cleanPhone, name || null, note || null, now, now, now,
-      plan, now, endAt, tags,
-      name || null, note || null, now, now
+      cleanPhone, dbState, name || null, note || null,
+      now,
+      type === 'paid' ? null : now,    // activated_at: NULL for paid (set by webhook)
+      now,
+      plan,
+      type === 'paid' ? null : now,    // subscription_start_at: NULL for paid
+      endAt,
+      tagsJson,
     ).run();
 
     await env.DB.prepare(
       `INSERT INTO consent_log (phone, consent_type, consent_text, timestamp)
-       VALUES (?, 'pilot_manual_add', 'Manually added by admin', ?)`
-    ).bind(cleanPhone, now).run();
+       VALUES (?, ?, ?, ?)`
+    ).bind(cleanPhone, consentType, consentText, now).run();
 
+    // Audit event — different for paid (no activation yet) vs free
     try {
+      const eventType = type === 'paid' ? 'manual_add_pending_payment' : 'activated';
+      const details = type === 'paid'
+        ? { plan, manual_add: true, type: 'paid' }
+        : { plan, manual_add: true, type, gift_days: type === 'gift' ? giftDays : undefined };
       await env.DB.prepare(
         `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
-         VALUES (?, 'activated', ?, 'admin', ?)`
-      ).bind(cleanPhone, JSON.stringify({ plan, manual_add: true }), now).run();
+         VALUES (?, ?, ?, 'admin', ?)`
+      ).bind(cleanPhone, eventType, JSON.stringify(details), now).run();
     } catch {}
 
-    return jsonResponse({ success: true, phone: cleanPhone });
+    // Side effects per type (after the row exists, so the WhatsApp send and
+    // the payment-link flow have something to attach to)
+    let extra = {};
+
+    if (type === 'paid') {
+      // Fire-and-await the link creation. CSW is closed (subscriber never
+      // messaged us), so this MUST go via template — handled inside the
+      // helper. If template isn't configured or fails, we still return
+      // success on the row insert; admin can use the resend button.
+      const subRow = await env.DB.prepare(
+        `SELECT * FROM subscribers WHERE phone = ?`
+      ).bind(cleanPhone).first();
+      const result = await createAndSendCheckoutLink(env, cleanPhone, subRow);
+      extra.payment_link_status = result.success ? 'sent' : 'fallback';
+      if (!result.success && result.checkoutUrl) {
+        extra.checkout_url = result.checkoutUrl;
+      }
+    } else if (type === 'gift') {
+      // Welcome template — silent skip if not configured (template still
+      // pending Meta approval).
+      if (env.WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME) {
+        try {
+          const endDateAr = new Intl.DateTimeFormat('ar', {
+            year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kuwait',
+          }).format(new Date(endAt));
+          await sendGiftWelcomeTemplate(env, cleanPhone, name, endDateAr);
+        } catch (err) {
+          console.warn(`[admin/add] gift welcome failed for ${cleanPhone}:`, err);
+          extra.gift_welcome_skipped = true;
+        }
+      } else {
+        extra.gift_welcome_skipped = true;
+      }
+    }
+    // tester: no WhatsApp side effect
+
+    return jsonResponse({ success: true, phone: cleanPhone, type, ...extra });
   } catch (err) {
     console.error('Add subscriber error:', err);
     return jsonResponse({ error: err.message }, 500);

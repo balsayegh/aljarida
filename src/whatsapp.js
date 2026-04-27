@@ -117,6 +117,40 @@ export async function sendPaymentLinkTemplate(env, to, customerName, amountKwd, 
   });
 }
 
+/**
+ * Send the gift welcome template — used when admin manually adds a free
+ * subscriber. Customer is by definition out of the 24h CSW window (they
+ * never messaged us), so a template is the only legal channel.
+ *
+ * Template (typically `aljarida_gift_welcome_ar`) configured in Meta with:
+ *   {{1}} customer name (or "عميلنا" fallback)
+ *   {{2}} subscription end date in Arabic-formatted text
+ * No buttons.
+ */
+export async function sendGiftWelcomeTemplate(env, to, customerName, endDateAr) {
+  const name = env.WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME;
+  if (!name) throw new Error('WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME not set');
+
+  return sendMessage(env, {
+    messaging_product: 'whatsapp',
+    to,
+    type: 'template',
+    template: {
+      name,
+      language: { code: 'ar' },
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: customerName || 'عميلنا' },
+            { type: 'text', text: endDateAr },
+          ],
+        },
+      ],
+    },
+  });
+}
+
 export async function sendWelcomePaidTemplate(env, to, renewalDate) {
   return sendMessage(env, {
     messaging_product: 'whatsapp',
