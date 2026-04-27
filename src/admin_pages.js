@@ -144,6 +144,7 @@ export const SHARED_CSS = `
   th { background: #f9f9fb; color: #555; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.3px; }
   tr:hover { background: #f9f9fb; }
   .phone { font-family: 'SF Mono', Monaco, monospace; direction: ltr; text-align: left; }
+  .mono  { font-family: 'SF Mono', Monaco, monospace; direction: ltr; font-size: 13px; }
 
   /* Clickable subscriber rows */
   .sub-row { cursor: pointer; transition: background 0.1s; }

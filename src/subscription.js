@@ -138,10 +138,23 @@ export async function activateSubscriber(env, phone, plan = PLAN_YEARLY, customD
 }
 
 /**
- * Record a manual payment and extend subscription accordingly.
+ * Record a payment and extend subscription accordingly.
+ *
+ * `extras` is an optional bag of gateway-specific fields the Ottu webhook
+ * passes through. Manual/admin-recorded payments leave it empty and the
+ * extra columns stay NULL.
+ *   - paymentDate : ms epoch — overrides the default `Date.now()` for the
+ *                   payment_date column. Webhook handler passes Ottu's
+ *                   `timestamp_utc` so payment_date reflects the real PG
+ *                   time, not the moment our handler ran.
+ *   - gateway     : e.g. 'KNET', 'Credit-Card' (Ottu's gateway_account)
+ *   - pgReference : RRN / transaction_id from pg_params
+ *   - cardLast4   : '1234' (NULL for KNET)
+ *   - state       : 'paid' | 'refunded' | 'voided' from webhook
  */
-export async function recordPayment(env, phone, amountKwd, method, reference, notes, plan = PLAN_YEARLY, performedBy = 'admin') {
+export async function recordPayment(env, phone, amountKwd, method, reference, notes, plan = PLAN_YEARLY, performedBy = 'admin', extras = {}) {
   const now = Date.now();
+  const paymentDate = extras.paymentDate || now;
 
   const subscriber = await env.DB.prepare(
     `SELECT * FROM subscribers WHERE phone = ?`
@@ -156,9 +169,18 @@ export async function recordPayment(env, phone, amountKwd, method, reference, no
 
   await env.DB.prepare(
     `INSERT INTO payments
-      (phone, amount_kwd, payment_date, payment_method, reference, period_start, period_end, plan, status, notes, created_by, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?)`
-  ).bind(phone, amountKwd, now, method, reference, periodStart, periodEnd, plan, notes, performedBy, now).run();
+      (phone, amount_kwd, payment_date, payment_method, reference, period_start, period_end,
+       plan, status, notes, created_by, created_at,
+       gateway, pg_reference, card_last4, state)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(
+    phone, amountKwd, paymentDate, method, reference, periodStart, periodEnd,
+    plan, notes, performedBy, now,
+    extras.gateway || null,
+    extras.pgReference || null,
+    extras.cardLast4 || null,
+    extras.state || null,
+  ).run();
 
   const newPaymentCount = (subscriber.payment_count || 0) + 1;
   const newTotalPaid = (subscriber.total_paid_kwd || 0) + amountKwd;

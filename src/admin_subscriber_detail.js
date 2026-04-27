@@ -293,13 +293,43 @@ function render(d) {
   if (!d.payments || d.payments.length === 0) {
     html += '<div class="empty-state" style="padding:20px">لا توجد دفعات مسجلة</div>';
   } else {
-    html += '<table><thead><tr><th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>الفترة</th><th>المرجع</th></tr></thead><tbody>';
+    html += '<table><thead><tr>' +
+            '<th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>البطاقة</th>' +
+            '<th>الحالة</th><th>الفترة</th><th>المرجع</th>' +
+            '</tr></thead><tbody>';
     d.payments.forEach(function(p) {
-      html += '<tr><td>' + fmtDate(p.payment_date) + '</td>' +
+      // Method cell: show gateway when present (Ottu rows), fall back to method
+      const methodCell = p.gateway
+        ? escHtml(p.gateway) + ' <span class="muted">(' + methodLabel(p.payment_method) + ')</span>'
+        : methodLabel(p.payment_method);
+
+      // Card cell: '•••• 1234' if known, '—' otherwise (KNET/manual)
+      const cardCell = p.card_last4
+        ? '<span class="mono">•••• ' + escHtml(p.card_last4) + '</span>'
+        : '<span class="muted">—</span>';
+
+      // State badge (only set on Ottu rows; legacy/manual show '—')
+      let stateBadge;
+      if (p.state === 'paid') stateBadge = '<span class="badge badge-delivered">مدفوع</span>';
+      else if (p.state === 'refunded') stateBadge = '<span class="badge badge-failed">مُستردّ</span>';
+      else if (p.state === 'voided') stateBadge = '<span class="badge badge-failed">مُلغى</span>';
+      else stateBadge = '<span class="muted">—</span>';
+
+      // Reference: prefer pg_reference (RRN/transaction_id) — the value you'd
+      // give the bank or Ottu support — fall back to our internal session_id
+      const refCell = p.pg_reference
+        ? '<span class="mono">' + escHtml(p.pg_reference) + '</span>'
+        : '<span class="muted">' + (escHtml(p.reference) || '—') + '</span>';
+
+      html += '<tr>' +
+              '<td>' + fmtDate(p.payment_date) + '</td>' +
               '<td><strong>' + p.amount_kwd.toFixed(3) + ' د.ك</strong></td>' +
-              '<td>' + methodLabel(p.payment_method) + '</td>' +
+              '<td>' + methodCell + '</td>' +
+              '<td>' + cardCell + '</td>' +
+              '<td>' + stateBadge + '</td>' +
               '<td class="muted">' + fmtDate(p.period_start) + ' → ' + fmtDate(p.period_end) + '</td>' +
-              '<td class="muted">' + (escHtml(p.reference) || '—') + '</td></tr>';
+              '<td>' + refCell + '</td>' +
+              '</tr>';
     });
     html += '</tbody></table>';
   }

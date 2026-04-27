@@ -151,20 +151,26 @@ CREATE TABLE IF NOT EXISTS payments (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
   phone            TEXT NOT NULL,
   amount_kwd       REAL NOT NULL,
-  payment_date     INTEGER NOT NULL,
-  payment_method   TEXT,                 -- 'knet', 'visa', 'cash', 'bank_transfer', 'gift', 'manual', 'pilot'
-  reference        TEXT,                 -- transaction ID or admin note
+  payment_date     INTEGER NOT NULL,     -- when the payment actually happened (PG timestamp for Ottu)
+  payment_method   TEXT,                 -- 'ottu', 'knet', 'visa', 'cash', 'bank_transfer', 'gift', 'manual', 'pilot'
+  reference        TEXT,                 -- session_id (Ottu) or admin note (manual)
   period_start     INTEGER NOT NULL,
   period_end       INTEGER NOT NULL,
   plan             TEXT,                 -- 'yearly', 'gift', etc.
   status           TEXT DEFAULT 'completed',
   notes            TEXT,
   created_by       TEXT DEFAULT 'admin',
-  created_at       INTEGER NOT NULL
+  created_at       INTEGER NOT NULL,
+  -- Ottu-sourced details (NULL for manual/legacy rows)
+  gateway          TEXT,                 -- 'KNET', 'Credit-Card', etc. (gateway_account)
+  pg_reference     TEXT,                 -- pg_params.rrn || pg_params.transaction_id
+  card_last4       TEXT,                 -- '1234' (NULL for KNET)
+  state            TEXT                  -- 'paid' | 'refunded' | 'voided' (from webhook)
 );
 
 CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone);
 CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date DESC);
+CREATE INDEX IF NOT EXISTS idx_payments_state ON payments(state);
 
 -- ----------------------------------------------------------------------------
 -- Subscription events (lifecycle audit log)

@@ -83,6 +83,7 @@ async function activatePaidSubscription(env, intent, payload) {
       `Ottu order_no=${intent.order_no}`,
       intent.plan || PLAN_YEARLY,
       'system',
+      extractPaymentExtras(payload),
     );
 
     // Update subscriber state from awaiting_payment -> active is handled
@@ -95,6 +96,61 @@ async function activatePaidSubscription(env, intent, payload) {
   } catch (err) {
     console.error('[ottu] activatePaidSubscription failed', err);
   }
+}
+
+/**
+ * Pull the small set of gateway-specific fields we promote to typed columns
+ * on the payments table. Everything else lives in payment_intents.raw_webhook
+ * for forensic lookups.
+ *
+ * Note on pg_params shape: Ottu wraps most pg_params fields in an object with
+ * { value, verbose_name_en, verbose_name_ar } rather than returning a flat
+ * string (despite what the public docs imply). Some fields (rrn, card_number)
+ * may also come back as plain `null` when the gateway doesn't supply them.
+ * `unwrap()` handles both shapes.
+ */
+function extractPaymentExtras(payload) {
+  const pg = payload.pg_params || {};
+  return {
+    gateway: payload.gateway_account || null,
+    // Prefer RRN (the universal bank reconciliation key); fall back to
+    // transaction_id for gateways that don't expose RRN (e.g. KNET).
+    pgReference: unwrap(pg.rrn) || unwrap(pg.transaction_id) || null,
+    cardLast4: extractCardLast4(unwrap(pg.card_number)),
+    state: payload.state || null,
+    paymentDate: parseOttuTimestamp(payload.timestamp_utc),
+  };
+}
+
+/**
+ * Unwrap Ottu's `{ value, verbose_name_en, verbose_name_ar }` pg_params
+ * shape to a plain scalar. Returns null for null/undefined; passes scalars
+ * through unchanged.
+ */
+function unwrap(v) {
+  if (v == null) return null;
+  if (typeof v === 'object' && 'value' in v) return v.value ?? null;
+  return v;
+}
+
+function extractCardLast4(masked) {
+  // Ottu masks like '411111******1111' or '411111XXXXXX1111'. Take last 4
+  // and only return them if they're digits — anything else (e.g. KNET, where
+  // card_number isn't present) becomes null.
+  if (!masked || typeof masked !== 'string') return null;
+  const last4 = masked.slice(-4);
+  return /^\d{4}$/.test(last4) ? last4 : null;
+}
+
+function parseOttuTimestamp(ts) {
+  // Ottu sends `timestamp_utc` as 'YYYY-MM-DD HH:MM:SS' (UTC, no tz marker).
+  // JS's Date parser is inconsistent across runtimes for that format, so we
+  // normalize to ISO 8601 with an explicit Z. Returns null on parse failure
+  // so recordPayment falls back to Date.now().
+  if (!ts || typeof ts !== 'string') return null;
+  const iso = ts.includes('T') ? ts : ts.replace(' ', 'T') + 'Z';
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 export async function handlePaymentSuccess(request, env) {
