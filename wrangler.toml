@@ -22,12 +22,12 @@ OTTU_BASE_URL = "https://pay.aljarida.com"
 OTTU_PG_CODES = "credit-card,knet"
 WORKER_BASE_URL = "https://aljarida-whatsapp.mnakh.workers.dev"
 
-# WhatsApp template name for delivering Ottu checkout links. Leave empty
-# until the template is approved by Meta — the worker falls back to
-# free-form text (which only works inside the 24h customer-service window).
-# Once approved, set this to the template's exact name (e.g.
-# "aljarida_payment_link_ar") and redeploy.
-WHATSAPP_PAYMENT_TEMPLATE_NAME = ""
+# WhatsApp template name for delivering Ottu checkout links. Approved by
+# Meta on 2026-04-27 (UTILITY category). Works in or out of the 24h CSW
+# window — primary delivery channel. If sending fails (e.g. Meta rate
+# limit, transient error), the worker falls back to free-form text only
+# when CSW is open.
+WHATSAPP_PAYMENT_TEMPLATE_NAME = "aljarida_payment_link_ar"
 
 # Daily cron — 10 AM Kuwait time (7 AM UTC)
 # Runs: renewal reminders, auto-pause expired, timeout pending phone changes
