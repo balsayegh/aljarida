@@ -372,23 +372,32 @@ export async function sendPaymentLinkAction(request, env, phone) {
   if (result.success) {
     await logEvent(env, phone, 'payment_link_sent', {
       session_id: result.sessionId,
+      channel: result.channel || 'unknown',
       sent_by: 'admin',
     }, 'admin');
-    return jsonResponse({ success: true, session_id: result.sessionId, checkout_url: result.checkoutUrl });
+    return jsonResponse({
+      success: true,
+      session_id: result.sessionId,
+      checkout_url: result.checkoutUrl,
+      channel: result.channel,
+    });
   }
 
-  // Distinguish "Ottu refused" (Ottu down / config issue) from "WhatsApp send
-  // failed" (subscriber outside 24h CSW). The latter still leaves a usable
-  // checkout_url the admin can copy/paste manually.
-  if (result.error === 'whatsapp_send_failed') {
+  // Distinguish three failure modes — each gives the admin a different action:
+  //   - csw_closed_no_template : no reliable delivery channel; URL is good,
+  //     admin must hand it off out-of-band
+  //   - whatsapp_send_failed   : Meta returned an actual error (rare; the
+  //     usual silent-drop case never reaches here)
+  //   - other / Ottu failure   : Ottu rejected the create call
+  if (result.error === 'csw_closed_no_template' || result.error === 'whatsapp_send_failed') {
     await logEvent(env, phone, 'payment_link_send_failed', {
       session_id: result.sessionId,
-      reason: 'whatsapp_send_failed',
+      reason: result.error,
     }, 'admin');
-    return jsonResponse({
-      error: 'تم إنشاء الرابط في Ottu لكن فشل إرساله عبر واتساب (قد يكون خارج نافذة 24 ساعة). الرابط:',
-      checkout_url: result.checkoutUrl,
-    }, 502);
+    const msg = result.error === 'csw_closed_no_template'
+      ? 'العميل خارج نافذة الـ24 ساعة وقالب الدفع غير مفعّل. تم إنشاء الرابط — أرسله يدوياً:'
+      : 'تم إنشاء الرابط لكن فشل إرساله عبر واتساب. الرابط:';
+    return jsonResponse({ error: msg, checkout_url: result.checkoutUrl }, 502);
   }
 
   return jsonResponse({ error: result.error || 'فشل إنشاء رابط الدفع' }, 502);

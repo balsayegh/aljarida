@@ -14,7 +14,7 @@
 
 import { createCheckout, verifyOttuSignature } from './ottu.js';
 import { recordPayment, PRICING, PLAN_YEARLY } from './subscription.js';
-import { sendTextMessage } from './whatsapp.js';
+import { sendTextMessage, sendPaymentLinkTemplate } from './whatsapp.js';
 import { messages as t } from './templates.js';
 
 /**
@@ -25,15 +25,21 @@ import { messages as t } from './templates.js';
  *  - the inbound WhatsApp flow (subscriber clicked نعم)
  *  - the admin "send payment link" button (support-initiated resend)
  *
- * Returns:
- *   { success: true,  sessionId, checkoutUrl }   on Ottu+WhatsApp success
- *   { success: false, error }                    on any failure (already
- *                                                logged; caller decides
- *                                                whether to surface to user)
+ * Delivery strategy (in order):
+ *   1. WhatsApp template message (if env.WHATSAPP_PAYMENT_TEMPLATE_NAME is
+ *      set AND the template is approved by Meta). Works inside or outside
+ *      the 24h CSW window — this is the durable channel.
+ *   2. Free-form text — fallback when no template is configured. Only
+ *      attempted when subscriber.csw_open_until > now, because Meta
+ *      silently swallows free-form messages outside CSW (returns 200 OK,
+ *      never delivers). Sending into the void is worse than failing loud.
+ *   3. Fail with `csw_closed_no_template`. Caller surfaces the URL to the
+ *      admin for out-of-band delivery.
  *
- * On Ottu failure we ALSO send a fallback Arabic message to the subscriber
- * (free-form, requires open 24h CSW) so they don't get silence after tapping
- * yes. The admin caller can ignore this and just read `success`.
+ * Returns:
+ *   { success: true,  sessionId, checkoutUrl, channel }
+ *   { success: false, sessionId, checkoutUrl, error }     (intent persisted)
+ *   { success: false, error }                              (Ottu failure)
  */
 export async function createAndSendCheckoutLink(env, phone, subscriber) {
   const plan = PLAN_YEARLY;
@@ -50,8 +56,10 @@ export async function createAndSendCheckoutLink(env, phone, subscriber) {
     });
   } catch (err) {
     console.error(`[ottu] checkout creation failed for ${phone}:`, err);
-    // Best-effort customer-facing fallback; ignore its own errors.
-    sendTextMessage(env, phone, t.paymentPromptFallback).catch(() => {});
+    // Best-effort fallback message; only attempt if CSW is open.
+    if (subscriber?.csw_open_until && subscriber.csw_open_until > Date.now()) {
+      sendTextMessage(env, phone, t.paymentPromptFallback).catch(() => {});
+    }
     return { success: false, error: err.message || 'Ottu checkout creation failed' };
   }
 
@@ -63,17 +71,35 @@ export async function createAndSendCheckoutLink(env, phone, subscriber) {
      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`
   ).bind(session_id, orderNo, phone, amountKwd, plan, checkout_url, Date.now()).run();
 
-  try {
-    await sendTextMessage(env, phone, `${t.paymentPromptIntro}\n\n${checkout_url}\n\n${t.paymentPromptOutro}`);
-  } catch (err) {
-    // The intent row is already persisted; the link is real and usable. We
-    // surface this so the admin caller can warn ("created but couldn't
-    // deliver — likely outside 24h CSW window").
-    console.error(`[ottu] checkout WhatsApp send failed for ${phone}:`, err);
-    return { success: false, sessionId: session_id, checkoutUrl: checkout_url, error: 'whatsapp_send_failed' };
+  const cswOpen = !!(subscriber?.csw_open_until && subscriber.csw_open_until > Date.now());
+  const templateConfigured = !!env.WHATSAPP_PAYMENT_TEMPLATE_NAME;
+
+  // Strategy 1: template (preferred — works in/out of CSW)
+  if (templateConfigured) {
+    try {
+      await sendPaymentLinkTemplate(env, phone, subscriber?.profile_name, amountKwd, session_id);
+      return { success: true, sessionId: session_id, checkoutUrl: checkout_url, channel: 'template' };
+    } catch (err) {
+      console.warn(`[ottu] template send failed for ${phone} (will try free-form if CSW open):`, err);
+      // Fall through.
+    }
   }
 
-  return { success: true, sessionId: session_id, checkoutUrl: checkout_url };
+  // Strategy 2: free-form text (only if CSW open — outside CSW Meta drops
+  // the message silently)
+  if (cswOpen) {
+    try {
+      await sendTextMessage(env, phone, `${t.paymentPromptIntro}\n\n${checkout_url}\n\n${t.paymentPromptOutro}`);
+      return { success: true, sessionId: session_id, checkoutUrl: checkout_url, channel: 'freeform' };
+    } catch (err) {
+      console.error(`[ottu] free-form send failed for ${phone}:`, err);
+      return { success: false, sessionId: session_id, checkoutUrl: checkout_url, error: 'whatsapp_send_failed' };
+    }
+  }
+
+  // Strategy 3: nothing reliable — surface URL so admin can deliver manually
+  console.warn(`[ottu] no delivery channel for ${phone} (CSW closed, no template)`);
+  return { success: false, sessionId: session_id, checkoutUrl: checkout_url, error: 'csw_closed_no_template' };
 }
 
 export async function handleOttuWebhook(request, env, ctx) {
