@@ -41,6 +41,7 @@ import {
   getSubscriberDetail, extendSubscriptionAction, changePhoneAction,
   addTagAction, removeTagAction, changePlanAction, addPaymentAction,
   getEvents, getPayments, sendPaymentLinkAction, cancelPaymentIntentAction,
+  refundPaymentAction,
 } from './admin_api_v2.js';
 import { timingSafeEqual } from './crypto_util.js';
 import { getKuwaitDateParts } from './date_util.js';
@@ -152,6 +153,12 @@ export async function handleAdminRequest(request, env, ctx, url) {
   const apiCancelIntent = path.match(/^\/admin\/api\/payment-intents\/([^\/]+)\/cancel$/);
   if (apiCancelIntent && method === 'POST') {
     return cancelPaymentIntentAction(request, env, decodeURIComponent(apiCancelIntent[1]));
+  }
+
+  // Refund a payment (full or partial). payment_id is the integer PK on payments.
+  const apiRefundMatch = path.match(/^\/admin\/api\/payments\/(\d+)\/refund$/);
+  if (apiRefundMatch && method === 'POST') {
+    return refundPaymentAction(request, env, apiRefundMatch[1]);
   }
 
   const apiEventsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/events$/);

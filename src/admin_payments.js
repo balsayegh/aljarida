@@ -70,15 +70,23 @@ export async function handlePaymentsApi(request, env) {
 
   // Aggregate query — totals across the FULL filter, not just the current
   // page. This is what makes reconciliation usable.
+  //
+  // Partial-refund-aware accounting: net_paid = amount - refunded_so_far,
+  // total_refunded sums refunded_amount_kwd directly. So a 12 KWD payment
+  // with 5 refunded shows as 7 paid + 5 refunded, not 12+12.
   const stats = await env.DB.prepare(
     `SELECT
-       COUNT(*)                                                    AS count,
-       COALESCE(SUM(CASE WHEN p.state = 'paid' OR p.state IS NULL THEN p.amount_kwd END), 0) AS total_paid_kwd,
-       COALESCE(SUM(CASE WHEN p.state = 'refunded'                THEN p.amount_kwd END), 0) AS total_refunded_kwd,
-       SUM(CASE WHEN p.state = 'paid'     THEN 1 ELSE 0 END)       AS paid_count,
-       SUM(CASE WHEN p.state = 'refunded' THEN 1 ELSE 0 END)       AS refunded_count,
-       SUM(CASE WHEN p.state = 'voided'   THEN 1 ELSE 0 END)       AS voided_count,
-       SUM(CASE WHEN p.state IS NULL      THEN 1 ELSE 0 END)       AS unknown_count
+       COUNT(*)                                                              AS count,
+       COALESCE(SUM(CASE
+         WHEN p.state IN ('paid', 'partially_refunded') OR p.state IS NULL
+         THEN p.amount_kwd - COALESCE(p.refunded_amount_kwd, 0)
+       END), 0)                                                              AS total_paid_kwd,
+       COALESCE(SUM(p.refunded_amount_kwd), 0)                               AS total_refunded_kwd,
+       SUM(CASE WHEN p.state = 'paid'               THEN 1 ELSE 0 END)       AS paid_count,
+       SUM(CASE WHEN p.state = 'partially_refunded' THEN 1 ELSE 0 END)       AS partially_refunded_count,
+       SUM(CASE WHEN p.state = 'refunded'           THEN 1 ELSE 0 END)       AS refunded_count,
+       SUM(CASE WHEN p.state = 'voided'             THEN 1 ELSE 0 END)       AS voided_count,
+       SUM(CASE WHEN p.state IS NULL                THEN 1 ELSE 0 END)       AS unknown_count
      FROM payments p ${whereSql}`
   ).bind(...params).first();
 
@@ -97,13 +105,14 @@ export async function handlePaymentsApi(request, env) {
   return jsonResponse({
     payments: rows,
     stats: {
-      count:              stats?.count              || 0,
-      total_paid_kwd:     stats?.total_paid_kwd     || 0,
-      total_refunded_kwd: stats?.total_refunded_kwd || 0,
-      paid_count:         stats?.paid_count         || 0,
-      refunded_count:     stats?.refunded_count     || 0,
-      voided_count:       stats?.voided_count       || 0,
-      unknown_count:      stats?.unknown_count      || 0,
+      count:                    stats?.count                    || 0,
+      total_paid_kwd:           stats?.total_paid_kwd           || 0,
+      total_refunded_kwd:       stats?.total_refunded_kwd       || 0,
+      paid_count:               stats?.paid_count               || 0,
+      partially_refunded_count: stats?.partially_refunded_count || 0,
+      refunded_count:           stats?.refunded_count           || 0,
+      voided_count:             stats?.voided_count             || 0,
+      unknown_count:            stats?.unknown_count            || 0,
     },
     filter: { state, gateway, search, from: fromStr || isoDate(fromMs), to: toStr || isoDate(toMs) },
     pagination: {
@@ -135,6 +144,7 @@ export function renderPaymentsPage() {
       <select id="fState">
         <option value="all">الكل</option>
         <option value="paid">مدفوع</option>
+        <option value="partially_refunded">مُستردّ جزئياً</option>
         <option value="refunded">مُستردّ</option>
         <option value="voided">مُلغى</option>
         <option value="unknown">يدوي/غير محدّد</option>
@@ -160,7 +170,7 @@ export function renderPaymentsPage() {
   <div class="stat-card"><div class="stat-label">عدد الدفعات</div><div class="stat-value" id="sCount">—</div></div>
   <div class="stat-card"><div class="stat-label">إجمالي المدفوع</div><div class="stat-value" id="sPaid">—</div></div>
   <div class="stat-card"><div class="stat-label">إجمالي المستردّ</div><div class="stat-value" id="sRefunded">—</div></div>
-  <div class="stat-card"><div class="stat-label">مدفوعة / مستردّة / ملغاة / غير محدّدة</div><div class="stat-value" id="sBreakdown">—</div></div>
+  <div class="stat-card"><div class="stat-label">مدفوعة / جزئي / مستردّة / ملغاة / غير محدّدة</div><div class="stat-value" id="sBreakdown">—</div></div>
 </div>
 
 <div id="paymentsRoot"><div class="empty-state" style="padding:40px">جاري التحميل…</div></div>
@@ -219,8 +229,9 @@ function renderStats(s) {
   document.getElementById('sCount').textContent = s.count;
   document.getElementById('sPaid').textContent  = s.total_paid_kwd.toFixed(3) + ' د.ك';
   document.getElementById('sRefunded').textContent = s.total_refunded_kwd.toFixed(3) + ' د.ك';
+  // Order: paid / partial / refunded / voided / unknown
   document.getElementById('sBreakdown').textContent =
-    s.paid_count + ' / ' + s.refunded_count + ' / ' + s.voided_count + ' / ' + s.unknown_count;
+    s.paid_count + ' / ' + (s.partially_refunded_count || 0) + ' / ' + s.refunded_count + ' / ' + s.voided_count + ' / ' + s.unknown_count;
 }
 
 function renderTable(payments) {
@@ -275,9 +286,10 @@ function renderPager(p) {
 function gotoPage(n) { currentPage = n; load(); window.scrollTo(0, 0); }
 
 function badgeForState(s) {
-  if (s === 'paid')     return '<span class="badge badge-delivered">مدفوع</span>';
-  if (s === 'refunded') return '<span class="badge badge-failed">مُستردّ</span>';
-  if (s === 'voided')   return '<span class="badge badge-failed">مُلغى</span>';
+  if (s === 'paid')               return '<span class="badge badge-delivered">مدفوع</span>';
+  if (s === 'partially_refunded') return '<span class="badge badge-failed">مُستردّ جزئياً</span>';
+  if (s === 'refunded')           return '<span class="badge badge-failed">مُستردّ</span>';
+  if (s === 'voided')             return '<span class="badge badge-failed">مُلغى</span>';
   return '<span class="muted">—</span>';
 }
 

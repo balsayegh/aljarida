@@ -165,7 +165,8 @@ CREATE TABLE IF NOT EXISTS payments (
   gateway          TEXT,                 -- 'KNET', 'Credit-Card', etc. (gateway_account)
   pg_reference     TEXT,                 -- pg_params.rrn || pg_params.transaction_id
   card_last4       TEXT,                 -- '1234' (NULL for KNET)
-  state            TEXT                  -- 'paid' | 'refunded' | 'voided' (from webhook)
+  state            TEXT,                 -- 'paid' | 'partially_refunded' | 'refunded' | 'voided'
+  refunded_amount_kwd REAL DEFAULT 0      -- cumulative refunds (partial supported)
 );
 
 CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone);

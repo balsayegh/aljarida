@@ -168,6 +168,33 @@ export function renderSubscriberDetailPage(phone) {
   </div>
 </div>
 
+<div class="modal" id="refundModal" style="display:none">
+  <div class="modal-backdrop" onclick="closeModal('refundModal')"></div>
+  <div class="modal-content">
+    <h2>استرداد دفعة</h2>
+    <div class="alert alert-info" style="font-size:13px; margin-bottom:12px">
+      <div>المبلغ الأصلي: <strong id="refundOrigAmount">—</strong> د.ك</div>
+      <div>المسترد سابقاً: <strong id="refundAlready">—</strong> د.ك</div>
+      <div>المتاح للاسترداد: <strong id="refundAvailable">—</strong> د.ك</div>
+    </div>
+    <label>المبلغ المراد استرداده (د.ك)</label>
+    <input type="number" id="refundAmount" step="0.001" min="0">
+    <label>السبب (اختياري)</label>
+    <input type="text" id="refundReason" placeholder="مثال: تم بالخطأ / طلب العميل">
+    <label style="display:flex; align-items:center; gap:8px; font-weight:normal; margin-top:8px">
+      <input type="checkbox" id="refundNotify" checked>
+      <span>إشعار العميل عبر واتساب (إذا كانت نافذة 24 ساعة مفتوحة)</span>
+    </label>
+    <div class="alert alert-warning" id="refundFullWarning" style="font-size:13px; margin-top:12px; display:none">
+      ⚠ استرداد كامل يلغي الاشتراك فوراً (يُحوَّل المشترك إلى "معلّق").
+    </div>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal('refundModal')">إلغاء</button>
+      <button class="danger" onclick="doRefund()">تنفيذ الاسترداد</button>
+    </div>
+  </div>
+</div>
+
 <style>
 .modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
 .modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
@@ -378,7 +405,7 @@ function render(d) {
   } else {
     html += '<table><thead><tr>' +
             '<th>التاريخ</th><th>المبلغ</th><th>الطريقة</th><th>البطاقة</th>' +
-            '<th>الحالة</th><th>الفترة</th><th>المرجع</th>' +
+            '<th>الحالة</th><th>الفترة</th><th>المرجع</th><th>إجراءات</th>' +
             '</tr></thead><tbody>';
     d.payments.forEach(function(p) {
       // Method cell: show gateway when present (Ottu rows), fall back to method
@@ -391,18 +418,33 @@ function render(d) {
         ? '<span class="mono">•••• ' + escHtml(p.card_last4) + '</span>'
         : '<span class="muted">—</span>';
 
-      // State badge (only set on Ottu rows; legacy/manual show '—')
+      // State badge — partially_refunded shows the refunded amount inline
+      const refundedSoFar = Number(p.refunded_amount_kwd) || 0;
       let stateBadge;
-      if (p.state === 'paid') stateBadge = '<span class="badge badge-delivered">مدفوع</span>';
-      else if (p.state === 'refunded') stateBadge = '<span class="badge badge-failed">مُستردّ</span>';
-      else if (p.state === 'voided') stateBadge = '<span class="badge badge-failed">مُلغى</span>';
-      else stateBadge = '<span class="muted">—</span>';
+      if (p.state === 'paid' || (p.state == null && refundedSoFar === 0)) {
+        stateBadge = '<span class="badge badge-delivered">مدفوع</span>';
+      } else if (p.state === 'refunded') {
+        stateBadge = '<span class="badge badge-failed">مُستردّ</span>';
+      } else if (p.state === 'partially_refunded') {
+        stateBadge = '<span class="badge badge-failed">مُستردّ جزئياً (' + refundedSoFar.toFixed(3) + ')</span>';
+      } else if (p.state === 'voided') {
+        stateBadge = '<span class="badge badge-failed">مُلغى</span>';
+      } else {
+        stateBadge = '<span class="muted">—</span>';
+      }
 
       // Reference: prefer pg_reference (RRN/transaction_id) — the value you'd
       // give the bank or Ottu support — fall back to our internal session_id
       const refCell = p.pg_reference
         ? '<span class="mono">' + escHtml(p.pg_reference) + '</span>'
         : '<span class="muted">' + (escHtml(p.reference) || '—') + '</span>';
+
+      // Refund button only for Ottu-sourced payments with refundable balance left
+      const remaining = Number(p.amount_kwd) - refundedSoFar;
+      const canRefund = p.payment_method === 'ottu' && p.reference && remaining > 0.001 && p.state !== 'refunded' && p.state !== 'voided';
+      const actionCell = canRefund
+        ? '<button class="danger small" onclick="openRefund(' + p.id + ',' + p.amount_kwd + ',' + refundedSoFar + ')">استرداد</button>'
+        : '<span class="muted">—</span>';
 
       html += '<tr>' +
               '<td>' + fmtDate(p.payment_date) + '</td>' +
@@ -412,6 +454,7 @@ function render(d) {
               '<td>' + stateBadge + '</td>' +
               '<td class="muted">' + fmtDate(p.period_start) + ' → ' + fmtDate(p.period_end) + '</td>' +
               '<td>' + refCell + '</td>' +
+              '<td>' + actionCell + '</td>' +
               '</tr>';
     });
     html += '</tbody></table>';
@@ -583,6 +626,59 @@ async function setState(state) {
   else alert(d.error);
 }
 
+function openRefund(paymentId, originalAmount, alreadyRefunded) {
+  const remaining = Math.max(0, originalAmount - alreadyRefunded);
+  document.getElementById('refundOrigAmount').textContent = originalAmount.toFixed(3);
+  document.getElementById('refundAlready').textContent = alreadyRefunded.toFixed(3);
+  document.getElementById('refundAvailable').textContent = remaining.toFixed(3);
+  const amountInput = document.getElementById('refundAmount');
+  amountInput.value = remaining.toFixed(3);
+  amountInput.max = remaining;
+  document.getElementById('refundReason').value = '';
+  document.getElementById('refundNotify').checked = true;
+
+  // Show full-refund warning when amount equals or exceeds remaining
+  function syncWarning() {
+    const v = parseFloat(amountInput.value) || 0;
+    document.getElementById('refundFullWarning').style.display =
+      (v + 0.001 >= remaining) ? 'block' : 'none';
+  }
+  amountInput.oninput = syncWarning;
+  syncWarning();
+
+  // Stash the payment id on the modal so doRefund() knows which row to hit
+  document.getElementById('refundModal').dataset.paymentId = paymentId;
+  openModal('refundModal');
+}
+
+async function doRefund() {
+  const modal = document.getElementById('refundModal');
+  const paymentId = modal.dataset.paymentId;
+  const amount = parseFloat(document.getElementById('refundAmount').value);
+  const reason = document.getElementById('refundReason').value.trim();
+  const notify = document.getElementById('refundNotify').checked;
+
+  if (!Number.isFinite(amount) || amount <= 0) { alert('أدخل مبلغاً صحيحاً'); return; }
+  if (!confirm('تأكيد استرداد ' + amount.toFixed(3) + ' د.ك؟ هذه العملية تنفّذ فعلياً في Ottu ولا يمكن التراجع عنها.')) return;
+
+  const r = await fetch('/admin/api/payments/' + paymentId + '/refund', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount_kwd: amount, reason, notify }),
+  });
+  const d = await r.json();
+
+  if (d.success) {
+    let msg = 'تم الاسترداد بنجاح';
+    if (d.subscription_terminated) msg += ' — تم تعليق الاشتراك';
+    if (notify && !d.notified) msg += ' (لم يُرسل إشعار للعميل — خارج نافذة 24 ساعة)';
+    alert(msg);
+    closeModal('refundModal');
+    loadDetail();
+  } else {
+    alert(d.error || 'فشل الاسترداد');
+  }
+}
+
 function openEditNote() {
   document.getElementById('noteInput').value = (currentSubscriber && currentSubscriber.internal_note) || '';
   openModal('noteModal');
@@ -685,6 +781,7 @@ function eventText(type, details) {
     payment_link_sent: 'تم إرسال رابط دفع جديد (Ottu)',
     payment_link_send_failed: 'فشل إرسال رابط الدفع — ' + (details.reason === 'whatsapp_send_failed' ? 'تعذّر التوصيل عبر واتساب' : details.reason === 'csw_closed_no_template' ? 'العميل خارج نافذة 24 ساعة' : 'خطأ'),
     payment_link_canceled: 'تم إلغاء رابط الدفع',
+    payment_refunded: 'تم استرداد ' + (details.amount_kwd || 0) + ' د.ك' + (details.is_full ? ' (كامل)' : ' (جزئي)') + (details.reason ? ' — ' + escHtml(details.reason) : ''),
     renewal_interest: 'طلب تجديد الاشتراك' + (details.success ? '' : ' (فشل إرسال الرابط)'),
     plan_changed: 'تم تغيير الخطة من ' + (details.old_plan || '—') + ' إلى ' + (details.new_plan || '—'),
     reminder_sent: 'تم إرسال تذكير تجديد (' + (details.days_before || '?') + ' يوم قبل)',

@@ -146,6 +146,47 @@ export async function cancelCheckout(env, sessionId) {
 }
 
 /**
+ * Refund (full or partial) a paid Ottu transaction via the Operations API.
+ *
+ * External operation — Ottu actually calls the payment gateway, which moves
+ * funds back to the customer's card/KNET. Supports partial: pass `amountKwd`
+ * to refund less than the original total. Pass null/undefined to refund the
+ * full remaining amount (Ottu defaults to that).
+ *
+ * Caller is responsible for tracking cumulative refunded amount locally —
+ * Ottu accepts repeated partial refund calls as long as the sum stays
+ * below the original amount.
+ *
+ * https://docs.ottu.net/developers/operations
+ */
+export async function refundCheckout(env, sessionId, amountKwd) {
+  const baseUrl = env.OTTU_BASE_URL?.replace(/\/$/, '');
+  const apiKey = env.OTTU_API_KEY;
+  if (!baseUrl || !apiKey) {
+    throw new Error('Ottu config missing: need OTTU_BASE_URL, OTTU_API_KEY');
+  }
+
+  const body = { operation: 'refund', session_id: sessionId };
+  if (amountKwd != null) body.amount = Number(amountKwd).toFixed(3);
+
+  const res = await fetch(`${baseUrl}/b/pbl/v2/operation/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Api-Key ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Ottu refund failed: ${res.status} ${text}`);
+  }
+
+  try { return JSON.parse(text); } catch { return null; }
+}
+
+/**
  * Verify an Ottu webhook payload's HMAC-SHA256 signature.
  * Returns true iff the computed signature matches `payload.signature`.
  */

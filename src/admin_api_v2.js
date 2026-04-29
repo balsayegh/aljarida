@@ -20,8 +20,9 @@ import {
   PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT,
 } from './subscription.js';
 import { sendPhoneChangeVerification } from './whatsapp_v2.js';
+import { sendTextMessage } from './whatsapp.js';
 import { createAndSendCheckoutLink } from './payment.js';
-import { cancelCheckout } from './ottu.js';
+import { cancelCheckout, refundCheckout } from './ottu.js';
 import { jsonResponse } from './admin.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -402,6 +403,130 @@ export async function sendPaymentLinkAction(request, env, phone) {
   }
 
   return jsonResponse({ error: result.error || 'فشل إنشاء رابط الدفع' }, 502);
+}
+
+/**
+ * POST /admin/api/payments/:payment_id/refund
+ * Body: { amount_kwd: number, reason?: string, notify?: boolean }
+ *
+ * Full or partial refund. Validates the amount against the payment's
+ * remaining refundable balance (amount_kwd - refunded_amount_kwd), then
+ * calls Ottu's Operations API. On success: updates the payments row
+ * cumulatively, transitions state, and — if this completes a full refund —
+ * pauses the subscriber and ends their subscription today.
+ *
+ * `notify=true` attempts a free-form WhatsApp message to the customer.
+ * Skipped silently if CSW is closed (no Meta-approved refund template
+ * yet — refunds are too rare to warrant one).
+ */
+export async function refundPaymentAction(request, env, paymentId) {
+  let body;
+  try { body = await request.json(); } catch { body = {}; }
+  const requestedAmount = parseFloat(body.amount_kwd);
+  const reason = (body.reason || '').trim() || null;
+  const notify = !!body.notify;
+
+  if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+    return jsonResponse({ error: 'المبلغ المطلوب استرداده غير صالح' }, 400);
+  }
+
+  const payment = await env.DB.prepare(
+    `SELECT * FROM payments WHERE id = ?`
+  ).bind(paymentId).first();
+
+  if (!payment) return jsonResponse({ error: 'الدفعة غير موجودة' }, 404);
+  if (payment.payment_method !== 'ottu' || !payment.reference) {
+    return jsonResponse({
+      error: 'لا يمكن استرداد دفعة يدوية تلقائياً — استرد من Ottu يدوياً ثم عدّل الحالة عبر SQL.',
+    }, 400);
+  }
+
+  const refundedSoFar = Number(payment.refunded_amount_kwd) || 0;
+  const remaining = Number(payment.amount_kwd) - refundedSoFar;
+  // Guard against floating-point cruft (e.g. 12.000 - 11.999 = 0.001000…)
+  if (remaining < 0.001) {
+    return jsonResponse({ error: 'تم استرداد كامل المبلغ مسبقاً' }, 409);
+  }
+  if (requestedAmount > remaining + 0.001) {
+    return jsonResponse({
+      error: `المبلغ المطلوب أكبر من المتاح للاسترداد (${remaining.toFixed(3)} د.ك)`,
+    }, 400);
+  }
+
+  // Call Ottu. If it throws, we don't touch local state — the customer
+  // wasn't charged anything new and our row stays consistent.
+  try {
+    await refundCheckout(env, payment.reference, requestedAmount);
+  } catch (err) {
+    console.error(`[refund] Ottu rejected refund for payment id=${paymentId}:`, err);
+    return jsonResponse({ error: err.message || 'فشل الاسترداد في Ottu' }, 502);
+  }
+
+  // Update payments row cumulatively. New state depends on whether this
+  // empties the refundable balance.
+  const newRefunded = refundedSoFar + requestedAmount;
+  const isFullRefund = newRefunded + 0.001 >= Number(payment.amount_kwd);
+  const newState = isFullRefund ? 'refunded' : 'partially_refunded';
+
+  await env.DB.prepare(
+    `UPDATE payments
+     SET refunded_amount_kwd = ?, state = ?
+     WHERE id = ?`
+  ).bind(newRefunded, newState, paymentId).run();
+
+  // Subscription consequence: only on FULL refund. Partial refunds leave
+  // the subscription untouched — operator can adjust manually if needed.
+  let subscriptionTerminated = false;
+  if (isFullRefund) {
+    const now = Date.now();
+    await env.DB.prepare(
+      `UPDATE subscribers
+       SET state = 'paused',
+           subscription_end_at = ?,
+           updated_at = ?
+       WHERE phone = ?`
+    ).bind(now, now, payment.phone).run();
+    subscriptionTerminated = true;
+  }
+
+  await logEvent(env, payment.phone, 'payment_refunded', {
+    payment_id: paymentId,
+    session_id: payment.reference,
+    amount_kwd: requestedAmount,
+    refunded_total: newRefunded,
+    is_full: isFullRefund,
+    reason,
+    subscription_terminated: subscriptionTerminated,
+  }, 'admin');
+
+  // Optional customer WhatsApp note. Free-form only — needs CSW open.
+  let notified = false;
+  if (notify) {
+    const sub = await env.DB.prepare(
+      `SELECT csw_open_until FROM subscribers WHERE phone = ?`
+    ).bind(payment.phone).first();
+    const cswOpen = sub?.csw_open_until && sub.csw_open_until > Date.now();
+    if (cswOpen) {
+      try {
+        const msg = isFullRefund
+          ? `تم استرداد كامل المبلغ (${requestedAmount.toFixed(3)} د.ك) من اشتراكك في *جريدة الجريدة* النسخة الرقمية.${reason ? '\n\nالسبب: ' + reason : ''}`
+          : `تم استرداد جزئي بقيمة ${requestedAmount.toFixed(3)} د.ك من اشتراكك في *جريدة الجريدة* النسخة الرقمية.${reason ? '\n\nالسبب: ' + reason : ''}`;
+        await sendTextMessage(env, payment.phone, msg);
+        notified = true;
+      } catch (err) {
+        console.warn(`[refund] customer notify failed for ${payment.phone}:`, err);
+      }
+    }
+  }
+
+  return jsonResponse({
+    success: true,
+    refunded_amount_kwd: requestedAmount,
+    refunded_total_kwd: newRefunded,
+    state: newState,
+    subscription_terminated: subscriptionTerminated,
+    notified,
+  });
 }
 
 /**
