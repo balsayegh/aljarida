@@ -20,7 +20,7 @@
  */
 
 import { renderLoginPage } from './admin_pages.js';
-import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage, renderFailuresPage, renderAdminsPage } from './admin_pages.js';
+import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage, renderFailuresPage, renderAdminsPage, renderPublishPage } from './admin_pages.js';
 import { renderSubscriberDetailPage } from './admin_subscriber_detail.js';
 import { renderPaymentsPage, handlePaymentsApi } from './admin_payments.js';
 import { handleBroadcast } from './admin_broadcast.js';
@@ -84,6 +84,11 @@ async function dispatch(request, env, ctx, url, admin) {
   // ---------- HTML pages (GET) ----------
   if (method === 'GET') {
     if (path === '/admin')                       return htmlResponse(renderDashboardPage());
+    if (path === '/admin/publish') {
+      const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_PUBLISHER]);
+      if (denied) return denied;
+      return htmlResponse(renderPublishPage());
+    }
     if (path === '/admin/subscribers') {
       const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
       if (denied) return denied;
@@ -130,6 +135,16 @@ async function dispatch(request, env, ctx, url, admin) {
   // Stats (dashboard) — all roles see basic stats
   if (path === '/admin/api/stats' && method === 'GET') {
     return handleApiStats(env);
+  }
+
+  // Rich dashboard payload — KPIs + alerts + funnel + 30-day daily series
+  if (path === '/admin/api/dashboard' && method === 'GET') {
+    return handleApiDashboard(env);
+  }
+
+  // Recent activity feed
+  if (path === '/admin/api/activity' && method === 'GET') {
+    return handleApiActivity(request, env);
   }
 
   // Admin management (supervisor only)
@@ -607,6 +622,165 @@ async function handleApiStats(env) {
       } : null,
     },
   });
+}
+
+// ----------------------------------------------------------------------------
+// API: Dashboard (rich payload — KPIs + alerts + funnel + daily series)
+// ----------------------------------------------------------------------------
+
+async function handleApiDashboard(env) {
+  const now = Date.now();
+  const DAY_MS = 86400000;
+
+  // Kuwait month boundaries (UTC+3, no DST)
+  const kp = getKuwaitDateParts(new Date(now));
+  const monthStartMs    = Date.UTC(kp.year, kp.month - 1, 1) - 3 * 60 * 60 * 1000;
+  const lastMonthStart  = Date.UTC(kp.year, kp.month - 2, 1) - 3 * 60 * 60 * 1000;
+  const lastMonthEnd    = monthStartMs - 1;
+  const last30DaysStart = now - 30 * DAY_MS;
+
+  const STUCK_PENDING_MS = 60 * 60 * 1000;
+  const EXPIRING_WINDOW_MS = 7 * DAY_MS;
+
+  const [
+    funnelCounts, lastBroadcast,
+    monthRevenue, lastMonthRevenue, lastPayment,
+    stuckPending, dlqCount, stalledCount, expiringSoonCount,
+    revenueByDay, signupsByDay,
+  ] = await Promise.all([
+    // Funnel stats — single query, multiple counts
+    env.DB.prepare(
+      `SELECT
+         SUM(CASE WHEN state = 'active' THEN 1 ELSE 0 END)              AS active,
+         SUM(CASE WHEN state = 'unsubscribed' THEN 1 ELSE 0 END)        AS unsubscribed,
+         SUM(CASE WHEN state IN ('offered','yes','awaiting_payment') THEN 1 ELSE 0 END) AS in_flight,
+         SUM(CASE WHEN first_contact_at > ? THEN 1 ELSE 0 END)          AS new_today,
+         COUNT(*)                                                       AS total
+       FROM subscribers`
+    ).bind(now - DAY_MS).first(),
+    env.DB.prepare(`SELECT * FROM broadcasts ORDER BY started_at DESC LIMIT 1`).first(),
+
+    // Revenue this month (treat NULL state as paid for legacy/manual rows)
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(amount_kwd - COALESCE(refunded_amount_kwd, 0)), 0) AS total_kwd, COUNT(*) AS c
+       FROM payments
+       WHERE payment_date >= ? AND (state IN ('paid','partially_refunded') OR state IS NULL)`
+    ).bind(monthStartMs).first(),
+
+    // Revenue last month (for delta)
+    env.DB.prepare(
+      `SELECT COALESCE(SUM(amount_kwd - COALESCE(refunded_amount_kwd, 0)), 0) AS total_kwd
+       FROM payments
+       WHERE payment_date BETWEEN ? AND ? AND (state IN ('paid','partially_refunded') OR state IS NULL)`
+    ).bind(lastMonthStart, lastMonthEnd).first(),
+
+    env.DB.prepare(
+      `SELECT phone, amount_kwd, gateway, payment_date
+       FROM payments
+       WHERE state IN ('paid','partially_refunded') OR state IS NULL
+       ORDER BY payment_date DESC
+       LIMIT 1`
+    ).first(),
+
+    // Alerts
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM payment_intents
+       WHERE state = 'pending' AND created_at < ?`
+    ).bind(now - STUCK_PENDING_MS).first(),
+
+    env.DB.prepare(`SELECT COUNT(*) AS c FROM broadcast_failures`).first(),
+
+    env.DB.prepare(`SELECT COUNT(*) AS c FROM broadcasts WHERE status = 'stalled'`).first(),
+
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM subscribers
+       WHERE state = 'active'
+         AND subscription_plan != 'pilot'
+         AND subscription_end_at IS NOT NULL
+         AND subscription_end_at BETWEEN ? AND ?`
+    ).bind(now, now + EXPIRING_WINDOW_MS).first(),
+
+    // Daily series — last 30 days, grouped by Kuwait calendar day.
+    // Kuwait is UTC+3 → shift the timestamp by +3h before formatting so
+    // a payment at 23:00 UTC (= 02:00 Kuwait next day) buckets correctly.
+    env.DB.prepare(
+      `SELECT strftime('%Y-%m-%d', (payment_date / 1000) + 10800, 'unixepoch') AS day,
+              COALESCE(SUM(amount_kwd - COALESCE(refunded_amount_kwd, 0)), 0) AS total
+       FROM payments
+       WHERE payment_date >= ? AND (state IN ('paid','partially_refunded') OR state IS NULL)
+       GROUP BY day
+       ORDER BY day`
+    ).bind(last30DaysStart).all(),
+
+    env.DB.prepare(
+      `SELECT strftime('%Y-%m-%d', (first_contact_at / 1000) + 10800, 'unixepoch') AS day,
+              COUNT(*) AS c
+       FROM subscribers
+       WHERE first_contact_at >= ?
+       GROUP BY day
+       ORDER BY day`
+    ).bind(last30DaysStart).all(),
+  ]);
+
+  return jsonResponse({
+    kpis: {
+      active: funnelCounts?.active || 0,
+      revenue_month_kwd: monthRevenue?.total_kwd || 0,
+      revenue_month_count: monthRevenue?.c || 0,
+      revenue_last_month_kwd: lastMonthRevenue?.total_kwd || 0,
+      last_broadcast: lastBroadcast ? {
+        id: lastBroadcast.id,
+        date_string: lastBroadcast.date_string,
+        sent_count: lastBroadcast.sent_count,
+        failed_count: lastBroadcast.failed_count,
+        target_count: lastBroadcast.target_count,
+        started_at: lastBroadcast.started_at,
+        status: lastBroadcast.status,
+      } : null,
+      last_payment: lastPayment ? {
+        phone: lastPayment.phone,
+        amount_kwd: lastPayment.amount_kwd,
+        gateway: lastPayment.gateway,
+        payment_date: lastPayment.payment_date,
+      } : null,
+    },
+    alerts: {
+      expiring_7d:    expiringSoonCount?.c || 0,
+      stuck_pending:  stuckPending?.c || 0,
+      dlq_failures:   dlqCount?.c || 0,
+      stalled_broadcasts: stalledCount?.c || 0,
+    },
+    funnel: {
+      in_flight:    funnelCounts?.in_flight    || 0,
+      new_today:    funnelCounts?.new_today    || 0,
+      unsubscribed: funnelCounts?.unsubscribed || 0,
+      total:        funnelCounts?.total        || 0,
+    },
+    series: {
+      revenue_30d: (revenueByDay?.results || []).map(r => ({ day: r.day, value: Number(r.total) })),
+      signups_30d: (signupsByDay?.results || []).map(r => ({ day: r.day, value: Number(r.c) })),
+    },
+  });
+}
+
+// ----------------------------------------------------------------------------
+// API: Activity feed
+// ----------------------------------------------------------------------------
+
+async function handleApiActivity(request, env) {
+  const url = new URL(request.url);
+  const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '15', 10)));
+
+  const { results } = await env.DB.prepare(
+    `SELECT e.id, e.phone, e.event_type, e.details, e.performed_by, e.created_at,
+            s.profile_name
+     FROM subscription_events e
+     LEFT JOIN subscribers s ON s.phone = e.phone
+     ORDER BY e.created_at DESC
+     LIMIT ?`
+  ).bind(limit).all();
+
+  return jsonResponse({ events: results });
 }
 
 // ----------------------------------------------------------------------------

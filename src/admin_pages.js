@@ -225,6 +225,7 @@ export function pageShell(title, activePage, bodyHtml) {
   <div class="topnav-brand">جريدة الجريدة الرقمية</div>
   <div class="topnav-links">
     <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
+    <a href="/admin/publish" class="${activePage === 'publish' ? 'active' : ''}" data-roles="supervisor,publisher">إرسال العدد</a>
     <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}" data-roles="supervisor,billing">المشتركون</a>
     <a href="/admin/payments" class="${activePage === 'payments' ? 'active' : ''}" data-roles="supervisor,billing">الدفعات</a>
     <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}">سجل الإرسال</a>
@@ -247,9 +248,11 @@ export function pageShell(title, activePage, bodyHtml) {
     if (!r.ok) return;
     const { admin } = await r.json();
     if (!admin) return;
-    document.querySelectorAll('.topnav-links a[data-roles]').forEach(a => {
-      const roles = a.dataset.roles.split(',').map(s => s.trim()).filter(Boolean);
-      if (!roles.includes(admin.role)) a.style.display = 'none';
+    // Hide any element with data-roles="..." that doesn't include the current role.
+    // Used for nav links, hero cards, quick-links footer, etc.
+    document.querySelectorAll('[data-roles]').forEach(el => {
+      const roles = el.dataset.roles.split(',').map(s => s.trim()).filter(Boolean);
+      if (!roles.includes(admin.role)) el.style.display = 'none';
     });
     const label = document.getElementById('navAdminLabel');
     const roleAr = { supervisor: 'مشرف', billing: 'محاسب', publisher: 'ناشر' }[admin.role] || admin.role;
@@ -300,42 +303,401 @@ export function renderLoginPage(errorMessage = null) {
 }
 
 // ----------------------------------------------------------------------------
-// Dashboard — UPDATED with URL override
+// Dashboard — informative-only (no actions; publishing moved to /admin/publish)
 // ----------------------------------------------------------------------------
 
 export function renderDashboardPage() {
   const body = `
 <h1>الرئيسية</h1>
-<p class="subtitle">إرسال العدد القادم ونظرة عامة</p>
+<p class="subtitle">نظرة عامة على نشاط الخدمة</p>
 
-<div class="stats-grid" id="statsGrid">
-  <div class="stat-card"><div class="stat-label">المشتركون النشطون</div><div class="stat-value" id="stat-active">—</div></div>
+<!-- Hero KPIs -->
+<div class="hero-grid">
+  <div class="hero-card">
+    <div class="hero-label">المشتركون النشطون</div>
+    <div class="hero-value" id="hero-active">—</div>
+    <div class="hero-sub muted">إجمالي حساب الاشتراك</div>
+  </div>
+  <a href="/admin/payments" class="hero-card hero-link" data-roles="supervisor,billing">
+    <div class="hero-label">إيرادات الشهر</div>
+    <div class="hero-value" id="hero-revenue">—</div>
+    <div class="hero-sub muted" id="hero-revenue-delta">—</div>
+  </a>
+  <a href="#" class="hero-card hero-link" id="hero-broadcast">
+    <div class="hero-label">آخر إرسال</div>
+    <div class="hero-value" id="hero-broadcast-date">—</div>
+    <div class="hero-sub muted" id="hero-broadcast-rate">—</div>
+  </a>
+</div>
+
+<!-- Alerts row (only visible if any alert is non-zero) -->
+<div class="alerts-grid" id="alertsGrid" style="display:none">
+  <a href="/admin/subscribers?expiring=7" class="alert-card alert-amber" id="alert-expiring" style="display:none">
+    <div class="alert-label">اشتراكات تنتهي خلال 7 أيام</div>
+    <div class="alert-value" id="alert-expiring-value">0</div>
+  </a>
+  <a href="/admin/payments?state=unknown" class="alert-card alert-amber" id="alert-stuck" style="display:none">
+    <div class="alert-label">محاولات دفع معلّقة (&gt; ساعة)</div>
+    <div class="alert-value" id="alert-stuck-value">0</div>
+  </a>
+  <a href="/admin/failures" class="alert-card alert-red" id="alert-dlq" style="display:none">
+    <div class="alert-label">فشل إرسال (DLQ)</div>
+    <div class="alert-value" id="alert-dlq-value">0</div>
+  </a>
+  <a href="/admin/broadcasts" class="alert-card alert-red" id="alert-stalled" style="display:none">
+    <div class="alert-label">بثوث متوقفة</div>
+    <div class="alert-value" id="alert-stalled-value">0</div>
+  </a>
+</div>
+
+<!-- Funnel & growth -->
+<h2 style="margin-top:28px; margin-bottom:12px">الحركة</h2>
+<div class="stats-grid">
   <div class="stat-card"><div class="stat-label">قيد الاشتراك</div><div class="stat-value" id="stat-inflight">—</div></div>
   <div class="stat-card"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
   <div class="stat-card"><div class="stat-label">ملغون</div><div class="stat-value" id="stat-unsub">—</div></div>
   <div class="stat-card"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
 </div>
 
-<div class="stats-grid" style="margin-top:16px">
-  <a href="/admin/payments" class="stat-card stat-link" style="text-decoration:none;color:inherit">
-    <div class="stat-label">مدفوعات هذا الشهر</div>
-    <div class="stat-value" id="stat-month-paid">—</div>
-    <div class="stat-sub muted" id="stat-month-count">—</div>
-  </a>
-  <div class="stat-card" id="stuckCard">
-    <div class="stat-label">محاولات دفع معلّقة (&gt; ساعة)</div>
-    <div class="stat-value" id="stat-stuck">—</div>
-    <div class="stat-sub muted">قد يحتاجون متابعة</div>
+<!-- Charts -->
+<h2 style="margin-top:28px; margin-bottom:12px">آخر 30 يوماً</h2>
+<div class="charts-grid">
+  <div class="chart-card">
+    <div class="chart-title">الإيرادات اليومية (د.ك)</div>
+    <div class="chart-host" id="chart-revenue"></div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">آخر دفعة مستلمة</div>
-    <div class="stat-value" id="stat-last-amount">—</div>
-    <div class="stat-sub muted" id="stat-last-meta">—</div>
+  <div class="chart-card">
+    <div class="chart-title">المشتركون الجدد يومياً</div>
+    <div class="chart-host" id="chart-signups"></div>
   </div>
 </div>
 
+<!-- Activity feed -->
+<h2 style="margin-top:28px; margin-bottom:12px">النشاط الأخير</h2>
+<div class="card" id="activityCard">
+  <div id="activityList"><div class="empty-state" style="padding:24px">جارٍ التحميل…</div></div>
+</div>
+
+<!-- Quick links footer -->
+<div class="quick-links">
+  <a href="/admin/publish" class="quick-link" data-roles="supervisor,publisher">📰 إرسال العدد</a>
+  <a href="/admin/subscribers" class="quick-link" data-roles="supervisor,billing">👥 المشتركون</a>
+  <a href="/admin/payments" class="quick-link" data-roles="supervisor,billing">💰 الدفعات</a>
+  <a href="/admin/broadcasts" class="quick-link">📊 سجل الإرسال</a>
+</div>
+
+<style>
+.hero-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px; margin-bottom: 16px;
+}
+.hero-card {
+  background: white; padding: 24px; border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  text-decoration: none; color: inherit;
+}
+.hero-card.hero-link { cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
+.hero-card.hero-link:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-decoration: none; }
+.hero-label { font-size: 13px; color: #666; margin-bottom: 8px; }
+.hero-value { font-size: 32px; font-weight: 700; color: #111; line-height: 1.1; }
+.hero-sub { font-size: 13px; margin-top: 6px; }
+
+.alerts-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px; margin-bottom: 16px;
+}
+.alert-card {
+  background: white; padding: 14px 18px; border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  text-decoration: none; color: inherit;
+  border-inline-start-width: 4px; border-inline-start-style: solid;
+}
+.alert-card:hover { background: #fafafa; text-decoration: none; }
+.alert-amber { border-inline-start-color: #f59e0b; }
+.alert-red   { border-inline-start-color: #dc2626; }
+.alert-label { font-size: 12px; color: #777; }
+.alert-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+
+.charts-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px; margin-bottom: 16px;
+}
+.chart-card { background: white; padding: 16px 20px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.chart-title { font-size: 14px; font-weight: 600; color: #444; margin-bottom: 12px; }
+.chart-host { width: 100%; height: 180px; }
+
+.activity-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid #f0f0f0;
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-icon { font-size: 20px; flex-shrink: 0; }
+.activity-body { flex: 1; min-width: 0; }
+.activity-line1 { font-size: 14px; color: #1a1a1a; }
+.activity-line2 { font-size: 12px; color: #777; margin-top: 2px; }
+.activity-line2 a { color: #0066cc; }
+.activity-time { font-size: 12px; color: #999; flex-shrink: 0; }
+
+.quick-links {
+  display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px;
+  padding-top: 20px; border-top: 1px solid #e5e5e7;
+}
+.quick-link {
+  background: #f5f5f7; padding: 10px 18px; border-radius: 8px;
+  text-decoration: none; color: #333; font-size: 14px;
+}
+.quick-link:hover { background: #e5e5e7; text-decoration: none; }
+</style>
+
+<script>
+function relTimeAr(diffMs) {
+  if (diffMs < 0) diffMs = 0;
+  if (diffMs < 60000)    return 'الآن';
+  if (diffMs < 3600000)  return 'منذ ' + Math.floor(diffMs / 60000) + ' د';
+  if (diffMs < 86400000) return 'منذ ' + Math.floor(diffMs / 3600000) + ' س';
+  if (diffMs < 30 * 86400000) return 'منذ ' + Math.floor(diffMs / 86400000) + ' يوم';
+  return 'منذ ' + Math.floor(diffMs / (30 * 86400000)) + ' شهر';
+}
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// --- Bar chart (inline SVG, no library) -------------------------------------
+// Pad data to N days (last 30 by default), inserting 0 for missing days.
+function padDailySeries(rawData, days = 30) {
+  const map = Object.fromEntries((rawData || []).map(p => [p.day, Number(p.value) || 0]));
+  const out = [];
+  const today = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const key = yyyy + '-' + mm + '-' + dd;
+    out.push({ day: key, value: map[key] || 0 });
+  }
+  return out;
+}
+function renderBarChart(host, data, opts) {
+  opts = opts || {};
+  const fmt = opts.format || (v => v.toString());
+  const W = 440, H = 160, pad = { l: 30, r: 8, t: 8, b: 24 };
+  const innerW = W - pad.l - pad.r;
+  const innerH = H - pad.t - pad.b;
+  const max = Math.max(1, ...data.map(d => d.value));
+  const barW = innerW / data.length * 0.7;
+  const gap = innerW / data.length * 0.3;
+  let bars = '';
+  data.forEach((d, i) => {
+    const h = max > 0 ? (d.value / max) * innerH : 0;
+    const x = pad.l + i * (innerW / data.length) + gap / 2;
+    const y = pad.t + innerH - h;
+    const fill = d.value > 0 ? '#0066cc' : '#e5e5e7';
+    const tooltip = d.day + ': ' + fmt(d.value);
+    bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" fill="' + fill + '" rx="1"><title>' + tooltip + '</title></rect>';
+  });
+  // Y-axis labels: max + middle + 0
+  const ticks = [
+    { v: max, y: pad.t },
+    { v: max / 2, y: pad.t + innerH / 2 },
+    { v: 0, y: pad.t + innerH },
+  ];
+  let labels = '';
+  ticks.forEach(t => {
+    labels += '<text x="' + (pad.l - 4) + '" y="' + (t.y + 3) + '" font-size="10" fill="#999" text-anchor="end">' + fmt(t.v) + '</text>';
+    labels += '<line x1="' + pad.l + '" y1="' + t.y + '" x2="' + (W - pad.r) + '" y2="' + t.y + '" stroke="#f0f0f0" />';
+  });
+  // Last and first day labels along x-axis
+  if (data.length > 0) {
+    const first = data[0].day.slice(5);  // MM-DD
+    const last  = data[data.length - 1].day.slice(5);
+    labels += '<text x="' + pad.l + '" y="' + (H - 6) + '" font-size="10" fill="#999">' + first + '</text>';
+    labels += '<text x="' + (W - pad.r) + '" y="' + (H - 6) + '" font-size="10" fill="#999" text-anchor="end">' + last + '</text>';
+  }
+  host.innerHTML =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%">' +
+    labels + bars +
+    '</svg>';
+}
+
+// --- Activity event rendering -----------------------------------------------
+function activityIcon(eventType) {
+  const m = {
+    payment_received: '💰',
+    payment_refunded: '↩️',
+    payment_link_sent: '🔗',
+    payment_link_canceled: '✖️',
+    payment_link_send_failed: '⚠️',
+    activated: '✅',
+    extended: '⏩',
+    paused: '⏸',
+    resumed: '▶️',
+    unsubscribed: '🚫',
+    auto_paused_expired: '⏰',
+    plan_changed: '🏷',
+    phone_change_requested: '📱',
+    phone_change_confirmed: '📱',
+    phone_change_rejected: '📱',
+    phone_change_reverted: '↩️',
+    reminder_sent: '🔔',
+    tag_added: '🏷',
+    tag_removed: '🏷',
+    renewal_interest: '🔄',
+    manual_add_pending_payment: '➕',
+  };
+  return m[eventType] || '•';
+}
+function activityText(eventType, details) {
+  const m = {
+    payment_received: 'تم استلام دفعة ' + (details.amount_kwd || 0) + ' د.ك',
+    payment_refunded: 'استرداد ' + (details.amount_kwd || 0) + ' د.ك' + (details.is_full ? ' (كامل)' : ' (جزئي)'),
+    payment_link_sent: 'أُرسل رابط دفع',
+    payment_link_canceled: 'تم إلغاء رابط الدفع',
+    payment_link_send_failed: 'فشل إرسال رابط الدفع',
+    activated: 'تم التفعيل (' + (details.plan || '—') + ')',
+    extended: 'تمديد ' + (details.days || 0) + ' يوم',
+    paused: 'تم التعليق',
+    resumed: 'تم الاستئناف',
+    unsubscribed: 'إلغاء الاشتراك',
+    auto_paused_expired: 'تعليق تلقائي (انتهاء)',
+    plan_changed: 'تغيير الخطة',
+    phone_change_requested: 'طلب تغيير رقم',
+    phone_change_confirmed: 'تأكيد تغيير رقم',
+    phone_change_rejected: 'رفض تغيير رقم',
+    phone_change_reverted: 'إلغاء تغيير الرقم',
+    reminder_sent: 'تذكير تجديد (' + (details.days_before || '?') + ' يوم)',
+    tag_added: 'وسم: ' + (details.tag || ''),
+    tag_removed: 'إزالة وسم: ' + (details.tag || ''),
+    renewal_interest: 'طلب تجديد',
+    manual_add_pending_payment: 'إضافة يدوية (بانتظار الدفع)',
+  };
+  return m[eventType] || eventType;
+}
+
+// --- Loaders ----------------------------------------------------------------
+async function loadDashboard() {
+  try {
+    const r = await fetch('/admin/api/dashboard');
+    const d = await r.json();
+    const k = d.kpis || {};
+    const a = d.alerts || {};
+    const f = d.funnel || {};
+    const s = d.series || {};
+
+    // Hero
+    document.getElementById('hero-active').textContent = k.active || 0;
+    document.getElementById('hero-revenue').textContent = (k.revenue_month_kwd || 0).toFixed(3) + ' د.ك';
+    const last = Number(k.revenue_last_month_kwd || 0);
+    const cur  = Number(k.revenue_month_kwd || 0);
+    let deltaText = (k.revenue_month_count || 0) + ' دفعة';
+    if (last > 0) {
+      const pct = Math.round(((cur - last) / last) * 100);
+      const sign = pct >= 0 ? '+' : '';
+      deltaText += ' • ' + sign + pct + '% مقارنة بالشهر الماضي';
+    }
+    document.getElementById('hero-revenue-delta').textContent = deltaText;
+
+    if (k.last_broadcast) {
+      const b = k.last_broadcast;
+      const rate = b.target_count > 0 ? Math.round((b.sent_count / b.target_count) * 100) : 0;
+      document.getElementById('hero-broadcast-date').textContent = b.date_string || '—';
+      document.getElementById('hero-broadcast-rate').textContent = 'معدل التسليم: ' + rate + '% (' + b.sent_count + '/' + b.target_count + ')';
+      document.getElementById('hero-broadcast').setAttribute('href', '/admin/broadcasts/' + b.id);
+    } else {
+      document.getElementById('hero-broadcast-date').textContent = '—';
+      document.getElementById('hero-broadcast-rate').textContent = 'لا توجد بثوث بعد';
+      document.getElementById('hero-broadcast').setAttribute('href', '/admin/broadcasts');
+    }
+
+    // Alerts
+    let anyAlert = false;
+    function showAlertCard(id, value) {
+      const card = document.getElementById('alert-' + id);
+      const valEl = document.getElementById('alert-' + id + '-value');
+      if (value > 0) {
+        card.style.display = 'block';
+        valEl.textContent = value;
+        anyAlert = true;
+      } else {
+        card.style.display = 'none';
+      }
+    }
+    showAlertCard('expiring', a.expiring_7d);
+    showAlertCard('stuck',    a.stuck_pending);
+    showAlertCard('dlq',      a.dlq_failures);
+    showAlertCard('stalled',  a.stalled_broadcasts);
+    document.getElementById('alertsGrid').style.display = anyAlert ? 'grid' : 'none';
+
+    // Funnel
+    document.getElementById('stat-inflight').textContent = f.in_flight || 0;
+    document.getElementById('stat-new').textContent      = f.new_today || 0;
+    document.getElementById('stat-unsub').textContent    = f.unsubscribed || 0;
+    document.getElementById('stat-total').textContent    = f.total || 0;
+
+    // Charts
+    renderBarChart(
+      document.getElementById('chart-revenue'),
+      padDailySeries(s.revenue_30d),
+      { format: v => v.toFixed(0) },
+    );
+    renderBarChart(
+      document.getElementById('chart-signups'),
+      padDailySeries(s.signups_30d),
+      { format: v => v.toString() },
+    );
+  } catch (err) { console.error('dashboard load failed', err); }
+}
+
+async function loadActivity() {
+  try {
+    const r = await fetch('/admin/api/activity?limit=15');
+    const d = await r.json();
+    const events = d.events || [];
+    const list = document.getElementById('activityList');
+    if (!events.length) {
+      list.innerHTML = '<div class="empty-state" style="padding:24px">لا يوجد نشاط بعد</div>';
+      return;
+    }
+    let html = '';
+    events.forEach(e => {
+      let parsed = {};
+      try { parsed = JSON.parse(e.details || '{}'); } catch {}
+      const ago = relTimeAr(Date.now() - e.created_at);
+      const phoneLink = '<a href="/admin/subscribers/' + encodeURIComponent(e.phone) + '">' + escapeHtml(e.profile_name || e.phone) + '</a>';
+      const actor = e.performed_by ? ' • ' + escapeHtml(e.performed_by) : '';
+      html += '<div class="activity-row">' +
+              '<div class="activity-icon">' + activityIcon(e.event_type) + '</div>' +
+              '<div class="activity-body">' +
+                '<div class="activity-line1">' + escapeHtml(activityText(e.event_type, parsed)) + '</div>' +
+                '<div class="activity-line2">' + phoneLink + actor + '</div>' +
+              '</div>' +
+              '<div class="activity-time">' + ago + '</div>' +
+              '</div>';
+    });
+    list.innerHTML = html;
+  } catch (err) { console.error('activity load failed', err); }
+}
+
+loadDashboard();
+loadActivity();
+setInterval(loadDashboard, 30000);
+setInterval(loadActivity, 30000);
+</script>
+  `;
+  return pageShell('الرئيسية', 'dashboard', body);
+}
+
+// ----------------------------------------------------------------------------
+// Publish page — broadcast trigger UI (moved out of the dashboard 2026-04-29)
+// ----------------------------------------------------------------------------
+
+export function renderPublishPage() {
+  const body = `
+<h1>إرسال العدد</h1>
+<p class="subtitle">حدد التاريخ المستهدف ورابط PDF ثم اضغط إرسال لجميع المشتركين النشطين.</p>
+
 <div class="card">
-  <h2>إرسال العدد القادم</h2>
   <p class="muted" style="margin:0 0 16px">
     تنشر الجريدة عدد اليوم التالي مساءً بعد الساعة 8. حدد التاريخ المستهدف ثم اضغط "إرسال".
   </p>
@@ -352,13 +714,11 @@ export function renderDashboardPage() {
     </div>
   </div>
 
-  <!-- URL section with toggle between auto and manual -->
   <div class="label-row">
     <label>رابط PDF <span id="urlModeBadge" class="badge badge-auto" style="margin-right:6px">تلقائي</span></label>
     <button type="button" class="link-btn" id="urlToggleBtn" onclick="toggleUrlMode()">تعديل يدوي</button>
   </div>
 
-  <!-- Auto mode: just display -->
   <div id="urlAutoView">
     <div class="url-display">
       <span class="url-text" id="pdfInfo">—</span>
@@ -366,7 +726,6 @@ export function renderDashboardPage() {
     <div class="url-check" id="urlCheck"></div>
   </div>
 
-  <!-- Manual mode: input field -->
   <div id="urlManualView" style="display:none">
     <input type="url" id="customPdfUrl" placeholder="https://www.aljarida.com/uploads/pdf/...">
     <div class="muted" style="margin-top:-10px; font-size:12px">
@@ -391,8 +750,6 @@ export function renderDashboardPage() {
 </div>
 
 <script>
-// --- Date helpers -----------------------------------------------------------
-
 function getNextPublishingDate() {
   const kuwait = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuwait' }));
   const target = new Date(kuwait);
@@ -400,29 +757,23 @@ function getNextPublishingDate() {
   if (target.getDay() === 6) target.setDate(target.getDate() + 1);
   return target;
 }
-
 function formatArabicDate(d) {
   const months = ['يناير','فبراير','مارس','إبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
   const days = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
   return days[d.getDay()] + ' ' + d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
 }
-
 function formatUrlDate(d) {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return { y, m, dd, slug: y + m + dd, iso: y + '-' + m + '-' + dd };
 }
-
 function buildPdfUrl(d) {
   const { y, m, dd, slug } = formatUrlDate(d);
   return 'https://www.aljarida.com/uploads/pdf/' + y + '/' + m + '/' + dd + '/aljarida-' + slug + '-1.pdf';
 }
 
-// --- URL mode state ---------------------------------------------------------
-
-let urlMode = 'auto';  // 'auto' or 'manual'
-
+let urlMode = 'auto';
 function toggleUrlMode() {
   if (urlMode === 'auto') {
     urlMode = 'manual';
@@ -431,7 +782,6 @@ function toggleUrlMode() {
     document.getElementById('urlToggleBtn').textContent = 'الرجوع للتلقائي';
     document.getElementById('urlModeBadge').className = 'badge badge-custom';
     document.getElementById('urlModeBadge').textContent = 'يدوي';
-    // Pre-fill with current auto-URL for convenience
     const autoUrl = document.getElementById('pdfInfo').textContent;
     if (autoUrl && autoUrl !== '—' && !document.getElementById('customPdfUrl').value) {
       document.getElementById('customPdfUrl').value = autoUrl;
@@ -441,7 +791,6 @@ function toggleUrlMode() {
     resetToAuto();
   }
 }
-
 function resetToAuto() {
   urlMode = 'auto';
   document.getElementById('urlAutoView').style.display = 'block';
@@ -449,13 +798,9 @@ function resetToAuto() {
   document.getElementById('urlToggleBtn').textContent = 'تعديل يدوي';
   document.getElementById('urlModeBadge').className = 'badge badge-auto';
   document.getElementById('urlModeBadge').textContent = 'تلقائي';
-  // Keep the custom value in the input in case they toggle back
   const url = document.getElementById('pdfInfo').textContent;
   if (url && url !== '—') checkUrl(url);
 }
-
-// --- Update fields from date ------------------------------------------------
-
 function updateFieldsFromDate(date) {
   const { iso } = formatUrlDate(date);
   document.getElementById('targetDate').value = iso;
@@ -464,10 +809,8 @@ function updateFieldsFromDate(date) {
   document.getElementById('pdfInfo').textContent = url;
   if (urlMode === 'auto') checkUrl(url);
 }
-
 const nextDate = getNextPublishingDate();
 updateFieldsFromDate(nextDate);
-
 document.getElementById('targetDate').addEventListener('change', function(e) {
   const val = e.target.value;
   if (!val) return;
@@ -476,13 +819,10 @@ document.getElementById('targetDate').addEventListener('change', function(e) {
   updateFieldsFromDate(d);
 });
 
-// --- URL check --------------------------------------------------------------
-
 async function checkUrl(url) {
   const el = document.getElementById('urlCheck');
   el.className = 'url-check checking';
   el.textContent = '🔄 جارٍ التحقق...';
-
   try {
     await fetch(url, { method: 'HEAD', mode: 'no-cors' });
     el.className = 'url-check ok';
@@ -493,90 +833,42 @@ async function checkUrl(url) {
   }
 }
 
-// --- Stats loader -----------------------------------------------------------
-
-async function loadStats() {
+async function loadLastBroadcast() {
   try {
     const r = await fetch('/admin/api/stats');
     const d = await r.json();
-    document.getElementById('stat-active').textContent = d.active;
-    document.getElementById('stat-inflight').textContent = d.inFlight;
-    document.getElementById('stat-new').textContent = d.newToday;
-    document.getElementById('stat-unsub').textContent = d.unsubscribed;
-    document.getElementById('stat-total').textContent = d.total;
-
-    // Payment stats — guard with optional chaining since older deploys don't set it
-    const p = d.payments || {};
-    document.getElementById('stat-month-paid').textContent = (p.month_total_kwd || 0).toFixed(3) + ' د.ك';
-    document.getElementById('stat-month-count').textContent = (p.month_count || 0) + ' دفعة';
-    document.getElementById('stat-stuck').textContent = p.stuck_pending || 0;
-    // Highlight stuck card in amber when count > 0
-    document.getElementById('stuckCard').style.borderInlineStart =
-      (p.stuck_pending > 0) ? '3px solid #f59e0b' : '';
-    if (p.last_payment) {
-      const lp = p.last_payment;
-      document.getElementById('stat-last-amount').textContent = Number(lp.amount_kwd).toFixed(3) + ' د.ك';
-      const ago = relTimeAr(Date.now() - lp.payment_date);
-      const gw = lp.gateway ? ' • ' + lp.gateway : '';
-      document.getElementById('stat-last-meta').textContent = ago + ' • ' + lp.phone + gw;
-    } else {
-      document.getElementById('stat-last-amount').textContent = '—';
-      document.getElementById('stat-last-meta').textContent = 'لا توجد دفعات بعد';
-    }
-
     if (d.lastBroadcast) {
-      document.getElementById('lastBroadcastCard').style.display = 'block';
       const b = d.lastBroadcast;
+      document.getElementById('lastBroadcastCard').style.display = 'block';
       document.getElementById('lastBroadcastContent').innerHTML =
         '<p><strong>' + escapeHtml(b.date_string) + '</strong></p>' +
         '<p class="muted">أُرسل إلى ' + b.target_count + ' — نجح: ' + b.sent_count + '، فشل: ' + b.failed_count + '</p>' +
         '<p><a href="/admin/broadcasts/' + b.id + '">عرض التفاصيل →</a></p>';
     }
-  } catch (err) { console.error(err); }
+  } catch {}
 }
-
-function relTimeAr(diffMs) {
-  if (diffMs < 60000)    return 'الآن';
-  if (diffMs < 3600000)  return 'منذ ' + Math.floor(diffMs / 60000) + ' د';
-  if (diffMs < 86400000) return 'منذ ' + Math.floor(diffMs / 3600000) + ' س';
-  return 'منذ ' + Math.floor(diffMs / 86400000) + ' يوم';
-}
-
-loadStats();
-setInterval(loadStats, 30000);
-
-// --- Broadcast --------------------------------------------------------------
+loadLastBroadcast();
 
 async function sendBroadcast() {
   const targetDateIso = document.getElementById('targetDate').value;
   const date = document.getElementById('date').value.trim();
-
-  if (!date) {
-    showAlert('sendStatus', 'يُرجى تعبئة التاريخ', 'error');
-    return;
-  }
+  if (!date) { showAlert('sendStatus', 'يُرجى تعبئة التاريخ', 'error'); return; }
 
   let customUrl = null;
   if (urlMode === 'manual') {
     customUrl = document.getElementById('customPdfUrl').value.trim();
-    if (!customUrl) {
-      showAlert('sendStatus', 'يُرجى إدخال رابط PDF أو الرجوع للوضع التلقائي', 'error');
-      return;
-    }
+    if (!customUrl) { showAlert('sendStatus', 'يُرجى إدخال رابط PDF أو الرجوع للوضع التلقائي', 'error'); return; }
     if (!customUrl.startsWith('https://') && !customUrl.startsWith('http://')) {
-      showAlert('sendStatus', 'يجب أن يبدأ الرابط بـ https:// أو http://', 'error');
-      return;
+      showAlert('sendStatus', 'يجب أن يبدأ الرابط بـ https:// أو http://', 'error'); return;
     }
     if (!customUrl.toLowerCase().includes('.pdf')) {
       if (!confirm('الرابط لا يحتوي على ".pdf" — هل أنت متأكد أنه رابط ملف PDF؟')) return;
     }
   }
 
-  // Saturday check
   const parts = targetDateIso.split('-');
   const targetDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
   const isSaturday = targetDate.getDay() === 6;
-
   let override = false;
   if (isSaturday) {
     if (!confirm('اليوم المستهدف هو السبت — لا يصدر عدد عادةً. هل أنت متأكد؟')) return;
@@ -595,28 +887,17 @@ async function sendBroadcast() {
 
   try {
     const r = await fetch('/admin/api/broadcast', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date,
-        override,
-        targetDateOverride: targetDateIso,
-        customPdfUrl: customUrl,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, override, targetDateOverride: targetDateIso, customPdfUrl: customUrl }),
     });
     const d = await r.json();
     document.getElementById('progressFill').style.width = '100%';
-
     if (d.success && d.status === 'queued') {
-      showAlert('sendStatus',
-        'تم جدولة الإرسال لـ ' + d.total + ' مشترك. التقدم يظهر في صفحة تفاصيل الإرسال. ' +
-        '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل ←</a>',
-        'info');
+      showAlert('sendStatus', 'تم جدولة الإرسال لـ ' + d.total + ' مشترك. ' +
+        '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل ←</a>', 'info');
     } else if (d.success) {
-      showAlert('sendStatus',
-        'تم الإرسال: ' + d.sent + ' بنجاح، ' + d.failed + ' فشل من أصل ' + d.total + ' مشترك. ' +
-        '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل</a>',
-        'success');
+      showAlert('sendStatus', 'تم الإرسال: ' + d.sent + ' بنجاح، ' + d.failed + ' فشل من أصل ' + d.total + ' مشترك. ' +
+        '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل</a>', 'success');
     } else {
       let msg = d.error || 'فشل الإرسال';
       if (d.pdfUrl) msg += '<br><span class="code" style="display:inline-block;margin-top:6px">' + escapeHtml(d.pdfUrl) + '</span>';
@@ -627,7 +908,7 @@ async function sendBroadcast() {
   } finally {
     btn.disabled = false;
     btn.textContent = 'إرسال لجميع المشتركين النشطين';
-    loadStats();
+    loadLastBroadcast();
   }
 }
 
@@ -637,13 +918,12 @@ function showAlert(id, html, type) {
   el.className = 'alert alert-' + type;
   el.style.display = 'block';
 }
-
 function escapeHtml(s) {
-  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 </script>
   `;
-  return pageShell('الرئيسية', 'dashboard', body);
+  return pageShell('إرسال العدد', 'publish', body);
 }
 
 // ----------------------------------------------------------------------------
