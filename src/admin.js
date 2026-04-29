@@ -652,10 +652,16 @@ async function handleApiDashboard(env) {
   const STUCK_PENDING_MS = 60 * 60 * 1000;
   const EXPIRING_WINDOW_MS = 7 * DAY_MS;
 
+  // Today boundaries in Kuwait wallclock — used for "expiring today" count.
+  // Kuwait midnight = UTC midnight - 3h.
+  const todayStartKw = Date.UTC(kp.year, kp.month - 1, kp.day) - 3 * 60 * 60 * 1000;
+  const todayEndKw   = todayStartKw + DAY_MS;
+
   const [
     funnelCounts, lastBroadcast,
     monthRevenue, lastMonthRevenue, lastPayment,
-    stuckPending, dlqCount, stalledCount, expiringSoonCount,
+    stuckPending, dlqCount, stalledCount,
+    expiringTodayCount, expiringSoonCount, expiredCount,
     revenueByDay, signupsByDay,
   ] = await Promise.all([
     // Funnel + active-by-plan in a single subscribers scan
@@ -705,6 +711,16 @@ async function handleApiDashboard(env) {
 
     env.DB.prepare(`SELECT COUNT(*) AS c FROM broadcasts WHERE status = 'stalled'`).first(),
 
+    // Expiring today (Kuwait calendar day) — pilot excluded since it never expires
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM subscribers
+       WHERE state = 'active'
+         AND subscription_plan != 'pilot'
+         AND subscription_end_at IS NOT NULL
+         AND subscription_end_at >= ?
+         AND subscription_end_at < ?`
+    ).bind(todayStartKw, todayEndKw).first(),
+
     env.DB.prepare(
       `SELECT COUNT(*) AS c FROM subscribers
        WHERE state = 'active'
@@ -712,6 +728,11 @@ async function handleApiDashboard(env) {
          AND subscription_end_at IS NOT NULL
          AND subscription_end_at BETWEEN ? AND ?`
     ).bind(now, now + EXPIRING_WINDOW_MS).first(),
+
+    // Already-expired = currently paused. Cron auto-pauses when end_at passes.
+    env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM subscribers WHERE state = 'paused'`
+    ).first(),
 
     // Daily series — last 30 days, grouped by Kuwait calendar day.
     // Kuwait is UTC+3 → shift the timestamp by +3h before formatting so
@@ -758,10 +779,14 @@ async function handleApiDashboard(env) {
       } : null,
     },
     alerts: {
-      expiring_7d:    expiringSoonCount?.c || 0,
       stuck_pending:  stuckPending?.c || 0,
       dlq_failures:   dlqCount?.c || 0,
       stalled_broadcasts: stalledCount?.c || 0,
+    },
+    expiry: {
+      expiring_today: expiringTodayCount?.c || 0,
+      expiring_7d:    expiringSoonCount?.c   || 0,
+      expired:        expiredCount?.c        || 0,
     },
     funnel: {
       in_flight:    funnelCounts?.in_flight    || 0,

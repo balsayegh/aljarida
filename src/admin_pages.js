@@ -444,12 +444,25 @@ export function renderDashboardPage() {
   </a>
 </div>
 
+<!-- Subscription expiry status -->
+<h2 style="margin-top:28px; margin-bottom:12px">حالة الاشتراكات</h2>
+<div class="stats-grid">
+  <a href="/admin/subscribers?expiring=today" class="stat-card expiry-card" style="text-decoration:none">
+    <div class="stat-label">اشتراكات تنتهي اليوم</div>
+    <div class="stat-value" id="stat-expiring-today">—</div>
+  </a>
+  <a href="/admin/subscribers?expiring=7" class="stat-card expiry-card" style="text-decoration:none">
+    <div class="stat-label">اشتراكات تنتهي خلال ٧ أيام</div>
+    <div class="stat-value" id="stat-expiring-7d">—</div>
+  </a>
+  <a href="/admin/subscribers?state=paused" class="stat-card expiry-card" style="text-decoration:none">
+    <div class="stat-label">اشتراكات منتهية</div>
+    <div class="stat-value" id="stat-expired">—</div>
+  </a>
+</div>
+
 <!-- Alerts row (only visible if any alert is non-zero) -->
 <div class="alerts-grid" id="alertsGrid" style="display:none">
-  <a href="/admin/subscribers?expiring=7" class="alert-card alert-amber" id="alert-expiring" style="display:none">
-    <div class="alert-label">اشتراكات تنتهي خلال 7 أيام</div>
-    <div class="alert-value" id="alert-expiring-value">0</div>
-  </a>
   <a href="/admin/payments?state=unknown" class="alert-card alert-amber" id="alert-stuck" style="display:none">
     <div class="alert-label">محاولات دفع معلّقة (&gt; ساعة)</div>
     <div class="alert-value" id="alert-stuck-value">0</div>
@@ -530,6 +543,12 @@ export function renderDashboardPage() {
 .hero-value { font-size: 32px; font-weight: 700; color: white; line-height: 1.1; }
 .hero-sub { font-size: 13px; margin-top: 6px; color: rgba(255,255,255,0.7); }
 .hero-card .muted { color: rgba(255,255,255,0.65); }
+
+/* Subscription expiry section — uniform brand cream + navy text */
+.stat-card.expiry-card { background: var(--brand-cream); }
+.stat-card.expiry-card:hover { filter: brightness(0.97); }
+.stat-card.expiry-card .stat-label { color: var(--brand-navy); opacity: 0.75; }
+.stat-card.expiry-card .stat-value { color: var(--brand-navy); }
 
 /* Plan breakdown */
 .stat-card.plan-yearly { background: var(--tint-green); }
@@ -770,11 +789,16 @@ async function loadDashboard() {
         card.style.display = 'none';
       }
     }
-    showAlertCard('expiring', a.expiring_7d);
     showAlertCard('stuck',    a.stuck_pending);
     showAlertCard('dlq',      a.dlq_failures);
     showAlertCard('stalled',  a.stalled_broadcasts);
     document.getElementById('alertsGrid').style.display = anyAlert ? 'grid' : 'none';
+
+    // Subscription expiry status
+    const ex = d.expiry || {};
+    document.getElementById('stat-expiring-today').textContent = ex.expiring_today || 0;
+    document.getElementById('stat-expiring-7d').textContent    = ex.expiring_7d    || 0;
+    document.getElementById('stat-expired').textContent        = ex.expired        || 0;
 
     // Active-by-plan
     const p = d.active_by_plan || {};
