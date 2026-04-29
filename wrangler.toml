@@ -30,9 +30,8 @@ WORKER_BASE_URL = "https://aljarida-whatsapp.mnakh.workers.dev"
 WHATSAPP_PAYMENT_TEMPLATE_NAME = "aljarida_payment_link_ar"
 
 # Welcome message sent when admin manually adds a "مجاني" (gift)
-# subscriber. Empty until the template is approved — admin adds will
-# silently skip the welcome (subscriber row is still created and active).
-WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME = ""
+# subscriber. Approved by Meta on 2026-04-28 (UTILITY).
+WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME = "aljarida_gift_welcome_ar"
 
 # Daily cron — 10 AM Kuwait time (7 AM UTC)
 # Runs: renewal reminders, auto-pause expired, timeout pending phone changes

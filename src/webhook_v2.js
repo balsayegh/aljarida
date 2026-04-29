@@ -131,21 +131,48 @@ async function handlePhoneChangeReject(env, phone) {
 }
 
 /**
- * Subscriber wants to renew — for pilot this is a placeholder.
- * In production with payment gateway, this would generate a payment link.
+ * Subscriber tapped "تجديد الاشتراك" on the renewal reminder template.
+ * Generate a fresh Ottu checkout and send the payment-link template.
+ *
+ * Tapping a button counts as inbound traffic so CSW would be open here, but
+ * createAndSendCheckoutLink prefers the approved template anyway — same code
+ * path as the initial subscribe-yes flow. recordPayment (called from the
+ * payment webhook on success) will extend the existing subscription_end_at
+ * by another year if it's still in the future, or start fresh from now.
+ *
+ * State is intentionally not touched here:
+ *   - active subscriber renewing early → stays 'active'
+ *   - paused (expired) subscriber renewing → stays 'paused' until payment
+ *     webhook flips them back to 'active'
  */
 async function handleRenewalYes(env, phone) {
   try {
-    const { sendTextMessage } = await import('./whatsapp.js');
-    await sendTextMessage(env, phone,
-      'ممتاز! للتجديد:\n\n' +
-      '💰 الاشتراك السنوي: 12 د.ك\n\n' +
-      '[رابط الدفع سيظهر هنا قريباً]\n\n' +
-      'هل تحتاج مساعدة؟ فقط اكتب استفسارك.'
-    );
-    await logEvent(env, phone, 'renewal_interest', {}, 'subscriber');
+    const subscriber = await env.DB.prepare(
+      `SELECT * FROM subscribers WHERE phone = ?`
+    ).bind(phone).first();
+
+    if (!subscriber) {
+      console.warn('[renewal] no subscriber row for', phone);
+      return true;
+    }
+
+    // Re-confirm consent for the new cycle
+    await env.DB.prepare(
+      `INSERT INTO consent_log (phone, consent_type, consent_text, timestamp)
+       VALUES (?, 'renewal_opt_in', 'Tapped تجديد on renewal reminder template', ?)`
+    ).bind(phone, Date.now()).run();
+
+    const { createAndSendCheckoutLink } = await import('./payment.js');
+    const result = await createAndSendCheckoutLink(env, phone, subscriber);
+
+    await logEvent(env, phone, 'renewal_interest', {
+      session_id: result.sessionId || null,
+      channel: result.channel || null,
+      success: !!result.success,
+      error: result.error || null,
+    }, 'subscriber');
   } catch (err) {
-    console.error('Failed to send renewal info:', err);
+    console.error('Failed to handle renewal yes:', err);
   }
   return true;
 }

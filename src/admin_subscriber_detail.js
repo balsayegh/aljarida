@@ -685,6 +685,7 @@ function eventText(type, details) {
     payment_link_sent: 'تم إرسال رابط دفع جديد (Ottu)',
     payment_link_send_failed: 'فشل إرسال رابط الدفع — ' + (details.reason === 'whatsapp_send_failed' ? 'تعذّر التوصيل عبر واتساب' : details.reason === 'csw_closed_no_template' ? 'العميل خارج نافذة 24 ساعة' : 'خطأ'),
     payment_link_canceled: 'تم إلغاء رابط الدفع',
+    renewal_interest: 'طلب تجديد الاشتراك' + (details.success ? '' : ' (فشل إرسال الرابط)'),
     plan_changed: 'تم تغيير الخطة من ' + (details.old_plan || '—') + ' إلى ' + (details.new_plan || '—'),
     reminder_sent: 'تم إرسال تذكير تجديد (' + (details.days_before || '?') + ' يوم قبل)',
     auto_paused_expired: 'تم التعليق تلقائياً (انتهاء الاشتراك)',
