@@ -1,95 +1,143 @@
-# AlJarida Pricing Update — Yearly Only (12 KWD/year)
+# AlJarida WhatsApp Service
 
-## What changed
+Daily newspaper delivery via WhatsApp for *جريدة الجريدة* النسخة الرقمية. Runs as a single Cloudflare Worker backed by a single D1 database. Solo-operator project — no CI, deploys are direct via `wrangler`.
 
-- **Pricing:** Now 12 KWD/year (was 2.5 KWD/month)
-- **Plans offered:** Yearly only (monthly removed from new signups)
-- **Pilot and gift plans:** Unchanged
-- **Default plan for new subscribers:** yearly (was monthly)
+## Stack
 
-## Files to replace
+- **Runtime**: Cloudflare Workers (no build step — modern JS modules served as-is)
+- **Storage**: Cloudflare D1 (SQLite) — `schema.sql` is the source of truth
+- **Queues**: Cloudflare Queues for broadcast fan-out + DLQ
+- **WhatsApp**: Meta Cloud API (templates managed in Meta Business Manager)
+- **Payments**: Ottu (KNET + Credit-Card)
 
-Drop these 6 files into your `src/` directory:
-
-1. `src/templates.js` — Updated offer and payment messages with new price
-2. `src/subscription.js` — Pricing constants updated to 12 KWD yearly
-3. `src/admin.js` — Default plan for new subscribers is now yearly
-4. `src/admin_api_v2.js` — Default payment plan is yearly
-5. `src/admin_subscriber_detail.js` — Payment form defaults to 12 KWD, plan dropdown hides monthly
-6. `src/webhook_v2.js` — Renewal help message shows yearly-only pricing
-
-## Deployment
+## Local setup (fresh clone)
 
 ```bash
-cd ~/path/to/aljarida-whatsapp
+npm install                # installs wrangler
+npx wrangler login         # one-time, opens browser
+cp .dev.vars.example .dev.vars   # then edit, fill in WhatsApp creds
+```
 
-# Backup current files (just in case)
-cp -r src src.backup-pricing
+`.dev.vars` is git-ignored and used only for `npm run dev`. Production secrets are stored via `wrangler secret put` (see "Secrets" below).
 
-# Extract and overlay
-unzip -o /path/to/aljarida-pricing-update.zip
+## Common commands
 
-# Syntax check
-for f in src/*.js; do node --check "$f" && echo "$f OK"; done
+```bash
+npm run dev                                       # local dev server (uses .dev.vars)
+npm run deploy                                    # deploy to prod
+npm run tail                                      # stream prod logs
 
-# Deploy
-git add -A
-git commit -m "Update pricing to 12 KWD/year (yearly only)"
-git push
+# D1 (production)
+npm run db:query -- "SELECT count(*) FROM subscribers"
+npx wrangler d1 execute aljarida-db --remote --file=migration-foo.sql
+npx wrangler d1 execute aljarida-db --remote --json --command "..."
+
+# D1 (local)
+npm run db:init:local                             # apply schema.sql to local DB
+npm run db:query:local -- "SELECT 1"
+
+# Secrets
+npx wrangler secret list                          # names only, no values
+npx wrangler secret put OTTU_API_KEY              # interactive, never paste in chat
+```
+
+## Project structure
+
+```
+src/
+  index.js                  Worker entry — fetch, scheduled, queue dispatchers
+  handlers.js               Inbound WhatsApp message routing by subscriber state
+  webhook_v2.js             Template-button-reply handlers (phone change, renewal)
+  whatsapp.js               Meta Cloud API wrappers (text + template senders)
+  whatsapp_v2.js            Higher-level template helpers (renewal reminder, etc.)
+  templates.js              Free-form Arabic message strings (reviewed copy)
+  subscription.js           Plan/period math, recordPayment, addTag, etc.
+  ottu.js                   Ottu API helpers — createCheckout, cancelCheckout, refundCheckout, signature
+  payment.js                Ottu webhook handler + createAndSendCheckoutLink
+  broadcast_queue.js        Queue producer + consumer for daily PDF broadcasts
+  cron.js                   Daily 10 AM Kuwait housekeeping (reminders, auto-pause, prune, etc.)
+  date_util.js              Kuwait timezone helpers
+  crypto_util.js            HMAC + constant-time compare
+  admin.js                  Admin auth, route registry, /admin/api/* handlers (subscriber CRUD, stats)
+  admin_pages.js            HTML renderers — dashboard, login, subscribers list, broadcasts list/detail, failures, page shell + shared CSS
+  admin_subscriber_detail.js  Subscriber detail page (events, payments, intents, modals)
+  admin_payments.js         Global Payments page + filterable API
+  admin_broadcast.js        Broadcast trigger handler
+schema.sql                  Canonical DB schema (current shape)
+migration-*.sql             Historical migrations applied to prod D1 in chronological order
+wrangler.toml               Worker config — bindings, vars, cron, queues
+```
+
+## Secrets (production)
+
+Set via `wrangler secret put NAME` and confirmed with `wrangler secret list`. Never committed.
+
+| Name | Purpose |
+|---|---|
+| `WHATSAPP_ACCESS_TOKEN` | Meta Cloud API token |
+| `WHATSAPP_VERIFY_TOKEN` | Meta webhook verify challenge |
+| `WHATSAPP_APP_SECRET` | For inbound webhook signature verification |
+| `WHATSAPP_PHONE_NUMBER_ID` | Source number ID |
+| `WHATSAPP_BUSINESS_ACCOUNT_ID` | WABA ID |
+| `OTTU_API_KEY` | Ottu API key (private) |
+| `OTTU_WEBHOOK_SECRET` | HMAC key for Ottu webhook signature verification |
+| `ADMIN_PASSWORD` | Admin panel password |
+
+## Database shape
+
+`schema.sql` is the canonical reference. To inspect prod tables:
+
+```bash
+npm run db:query -- "PRAGMA table_info(payments)"
+npm run db:query -- "SELECT name FROM sqlite_master WHERE type='table'"
+```
+
+## Deploys
+
+```bash
 npm run deploy
 ```
 
-## Still to do — Meta template update
+Wrangler bundles `src/index.js` and uploads — no build step. After deploy, version IDs are visible in the output. Rollback if needed:
 
-The renewal reminder template (`aljarida_renewal_reminder_ar`) currently says
-"2.5 د.ك / شهرياً" and needs to be updated.
-
-### Steps:
-
-1. Go to Meta Business Manager → WhatsApp Manager → Templates
-2. Find `aljarida_renewal_reminder_ar`
-3. Click Edit
-4. Change the body to:
-
-```
-مرحباً {{1}}،
-
-ينتهي اشتراكك في "جريدة الجريدة — النسخة الرقمية" خلال {{2}}.
-
-للاستمرار في استلام العدد اليومي، يُرجى تجديد اشتراكك.
-
-💰 12 د.ك / سنوياً
+```bash
+npx wrangler deployments list
+npx wrangler rollback <version-id>
 ```
 
-5. Submit for re-approval (1-3 days wait)
-6. Keep the same category (MARKETING) and buttons (تجديد الاشتراك, المساعدة)
+For schema changes: write a `migration-*.sql` file, apply with `wrangler d1 execute --remote --file=...`, then update `schema.sql` to match. Never edit prod D1 by hand without committing the corresponding migration.
 
-Until Meta approves the updated template, renewal reminders will still show
-the old price. The current pilot won't be affected because pilot subscribers
-don't receive renewal reminders.
+## Templates (Meta-approved)
 
-## Note on legacy subscribers
+WhatsApp templates live in Meta Business Manager, not in this repo. Code references them by name. Currently in use:
 
-Any existing subscribers with `subscription_plan = 'monthly'` still work fine —
-they just show "شهري" in the badge on the detail page.
+- `aljarida_payment_link_ar` — payment link for new subs / renewals
+- `aljarida_gift_welcome_ar` — admin-added مجاني subscriber welcome
+- `aljarida_renewal_reminder_ar` — 7-day and 1-day expiry reminders
+- `aljarida_daily_delivery_ar` — daily PDF (header is a document, body has the date)
+- `aljarida_welcome_paid_ar` — paid signup confirmation
+- `aljarida_phone_change_ar` — phone change verification
 
-You mentioned you'll manually convert them via admin. To do this for each one:
-1. Open their detail page: `/admin/subscribers/PHONE`
-2. Click "تغيير الخطة"
-3. Select "سنوي (12 د.ك)"
-4. Save
+Free-form (non-template) messages live in `src/templates.js` and inline in `src/payment.js` and `src/webhook_v2.js`. Free-form only delivers inside the 24h customer-service window — `createAndSendCheckoutLink` and similar helpers prefer templates first.
 
-Or bulk via SQL:
-```sql
--- Convert all monthly subscribers to yearly with same end date
-UPDATE subscribers
-SET subscription_plan = 'yearly'
-WHERE subscription_plan = 'monthly';
+## Admin panel
+
+Open `https://aljarida-whatsapp.mnakh.workers.dev/admin` and log in with `ADMIN_PASSWORD`. Top nav:
+
+- **Dashboard** — payment summary cards, broadcast trigger
+- **Subscribers** — list with payment status column, manual-add form (مشترك / تجريبي / مجاني)
+- **Payments** — global filterable payment log with reconciliation totals
+- **Broadcasts** — daily PDF send history + per-recipient status
+- **Failures** — DLQ inspection
+
+## Useful endpoints
+
 ```
-
-## Verification after deploy
-
-1. Visit admin dashboard — still loads ✅
-2. Open subscriber detail page — plan dropdown shows only yearly/pilot/gift ✅
-3. Click "إضافة دفعة" — defaults to 12 KWD ✅
-4. No code errors in browser console ✅
+GET  /                          health
+POST /webhook                   Meta inbound (signature verified)
+GET  /webhook                   Meta verify challenge
+POST /payment/webhook           Ottu payment webhook (HMAC verified)
+GET  /payment/success           Customer redirect after Ottu checkout
+GET  /admin                     admin dashboard
+POST /admin/api/...             admin JSON APIs (auth via session cookie)
+```
