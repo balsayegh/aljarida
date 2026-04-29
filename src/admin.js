@@ -649,13 +649,16 @@ async function handleApiDashboard(env) {
     stuckPending, dlqCount, stalledCount, expiringSoonCount,
     revenueByDay, signupsByDay,
   ] = await Promise.all([
-    // Funnel stats — single query, multiple counts
+    // Funnel + active-by-plan in a single subscribers scan
     env.DB.prepare(
       `SELECT
          SUM(CASE WHEN state = 'active' THEN 1 ELSE 0 END)              AS active,
          SUM(CASE WHEN state = 'unsubscribed' THEN 1 ELSE 0 END)        AS unsubscribed,
          SUM(CASE WHEN state IN ('offered','yes','awaiting_payment') THEN 1 ELSE 0 END) AS in_flight,
          SUM(CASE WHEN first_contact_at > ? THEN 1 ELSE 0 END)          AS new_today,
+         SUM(CASE WHEN state = 'active' AND subscription_plan = 'yearly' THEN 1 ELSE 0 END) AS active_yearly,
+         SUM(CASE WHEN state = 'active' AND subscription_plan = 'pilot'  THEN 1 ELSE 0 END) AS active_pilot,
+         SUM(CASE WHEN state = 'active' AND subscription_plan = 'gift'   THEN 1 ELSE 0 END) AS active_gift,
          COUNT(*)                                                       AS total
        FROM subscribers`
     ).bind(now - DAY_MS).first(),
@@ -756,6 +759,11 @@ async function handleApiDashboard(env) {
       new_today:    funnelCounts?.new_today    || 0,
       unsubscribed: funnelCounts?.unsubscribed || 0,
       total:        funnelCounts?.total        || 0,
+    },
+    active_by_plan: {
+      yearly: funnelCounts?.active_yearly || 0,
+      pilot:  funnelCounts?.active_pilot  || 0,
+      gift:   funnelCounts?.active_gift   || 0,
     },
     series: {
       revenue_30d: (revenueByDay?.results || []).map(r => ({ day: r.day, value: Number(r.total) })),

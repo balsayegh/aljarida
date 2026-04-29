@@ -350,6 +350,14 @@ export function renderDashboardPage() {
   </a>
 </div>
 
+<!-- Active by plan -->
+<h2 style="margin-top:28px; margin-bottom:12px">النشطون حسب نوع الاشتراك</h2>
+<div class="stats-grid">
+  <div class="stat-card"><div class="stat-label">مدفوع (سنوي)</div><div class="stat-value" id="stat-plan-yearly">—</div></div>
+  <div class="stat-card"><div class="stat-label">تجريبي</div><div class="stat-value" id="stat-plan-pilot">—</div></div>
+  <div class="stat-card"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
+</div>
+
 <!-- Funnel & growth -->
 <h2 style="margin-top:28px; margin-bottom:12px">الحركة</h2>
 <div class="stats-grid">
@@ -628,6 +636,12 @@ async function loadDashboard() {
     showAlertCard('dlq',      a.dlq_failures);
     showAlertCard('stalled',  a.stalled_broadcasts);
     document.getElementById('alertsGrid').style.display = anyAlert ? 'grid' : 'none';
+
+    // Active-by-plan
+    const p = d.active_by_plan || {};
+    document.getElementById('stat-plan-yearly').textContent = p.yearly || 0;
+    document.getElementById('stat-plan-pilot').textContent  = p.pilot  || 0;
+    document.getElementById('stat-plan-gift').textContent   = p.gift   || 0;
 
     // Funnel
     document.getElementById('stat-inflight').textContent = f.in_flight || 0;
