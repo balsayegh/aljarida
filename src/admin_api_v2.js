@@ -108,7 +108,7 @@ export async function getSubscriberDetail(request, env, phone) {
  * POST /admin/api/subscribers/:phone/extend
  * Body: { days: number, reason?: string }
  */
-export async function extendSubscriptionAction(request, env, phone) {
+export async function extendSubscriptionAction(request, env, phone, actor) {
   const { days, reason } = await request.json();
 
   if (!days || days <= 0 || days > 3650) {
@@ -138,7 +138,7 @@ export async function extendSubscriptionAction(request, env, phone) {
     reason: reason || null,
     new_end_at: newEndAt,
     previous_end_at: sub.subscription_end_at,
-  });
+  }, actor.email);
 
   return jsonResponse({ success: true, new_end_at: newEndAt, days_added: days });
 }
@@ -156,7 +156,7 @@ export async function extendSubscriptionAction(request, env, phone) {
  *   6. Send verification template to new number
  *   7. Subscriber's new number taps تأكيد or رفض (handled in webhook)
  */
-export async function changePhoneAction(request, env, phone) {
+export async function changePhoneAction(request, env, phone, actor) {
   const { new_phone, reason, skip_verification } = await request.json();
 
   // Validate
@@ -231,12 +231,13 @@ export async function changePhoneAction(request, env, phone) {
     ]);
 
     // Log event (on new phone now)
+    // attribution: actor.email so the timeline shows who initiated
     await logEvent(env, new_phone, 'phone_change_requested', {
       old_phone: phone,
       new_phone: new_phone,
       reason: reason || null,
       expires_at: expiresAt,
-    });
+    }, actor.email);
 
     // Send verification template to new phone (unless skipped)
     if (!skip_verification) {
@@ -264,7 +265,7 @@ export async function changePhoneAction(request, env, phone) {
  * POST /admin/api/subscribers/:phone/tags
  * Body: { tag: string }
  */
-export async function addTagAction(request, env, phone) {
+export async function addTagAction(request, env, phone, actor) {
   const { tag } = await request.json();
   if (!tag || !tag.trim()) return jsonResponse({ error: 'Tag required' }, 400);
   const cleaned = tag.trim().toLowerCase();
@@ -272,7 +273,7 @@ export async function addTagAction(request, env, phone) {
     return jsonResponse({ error: 'Tag must be alphanumeric (English) or Arabic' }, 400);
   }
   try {
-    const tags = await addTag(env, phone, tag.trim());
+    const tags = await addTag(env, phone, tag.trim(), actor.email);
     return jsonResponse({ success: true, tags });
   } catch (err) {
     return jsonResponse({ error: err.message }, 400);
@@ -282,9 +283,9 @@ export async function addTagAction(request, env, phone) {
 /**
  * DELETE /admin/api/subscribers/:phone/tags/:tag
  */
-export async function removeTagAction(request, env, phone, tag) {
+export async function removeTagAction(request, env, phone, tag, actor) {
   try {
-    const tags = await removeTag(env, phone, tag);
+    const tags = await removeTag(env, phone, tag, actor.email);
     return jsonResponse({ success: true, tags });
   } catch (err) {
     return jsonResponse({ error: err.message }, 400);
@@ -297,7 +298,7 @@ export async function removeTagAction(request, env, phone, tag) {
  *
  * Changes the plan type. Does NOT extend subscription; use /extend or /payments for that.
  */
-export async function changePlanAction(request, env, phone) {
+export async function changePlanAction(request, env, phone, actor) {
   const { plan, custom_days } = await request.json();
   const validPlans = [PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT];
   if (!validPlans.includes(plan)) {
@@ -324,7 +325,7 @@ export async function changePlanAction(request, env, phone) {
     new_plan: plan,
     custom_days: custom_days || null,
     new_end_at: newEndAt,
-  });
+  }, actor.email);
 
   return jsonResponse({ success: true, plan, subscription_end_at: newEndAt });
 }
@@ -333,7 +334,7 @@ export async function changePlanAction(request, env, phone) {
  * POST /admin/api/subscribers/:phone/payments
  * Body: { amount_kwd, method, reference?, notes?, plan?, payment_date? }
  */
-export async function addPaymentAction(request, env, phone) {
+export async function addPaymentAction(request, env, phone, actor) {
   const body = await request.json();
   const { amount_kwd, method, reference, notes, plan } = body;
 
@@ -347,7 +348,8 @@ export async function addPaymentAction(request, env, phone) {
   try {
     const result = await recordPayment(
       env, phone, parseFloat(amount_kwd), method,
-      reference || null, notes || null, plan || PLAN_YEARLY
+      reference || null, notes || null, plan || PLAN_YEARLY,
+      actor.email,
     );
     return jsonResponse({ success: true, ...result });
   } catch (err) {
@@ -362,7 +364,7 @@ export async function addPaymentAction(request, env, phone) {
  * payment_intents row and sends the link over WhatsApp. Refuses on
  * unsubscribed subscribers (don't bypass opt-out).
  */
-export async function sendPaymentLinkAction(request, env, phone) {
+export async function sendPaymentLinkAction(request, env, phone, actor) {
   const sub = await env.DB.prepare(`SELECT * FROM subscribers WHERE phone = ?`).bind(phone).first();
   if (!sub) return jsonResponse({ error: 'المشترك غير موجود' }, 404);
   if (sub.state === 'unsubscribed') {
@@ -375,8 +377,8 @@ export async function sendPaymentLinkAction(request, env, phone) {
     await logEvent(env, phone, 'payment_link_sent', {
       session_id: result.sessionId,
       channel: result.channel || 'unknown',
-      sent_by: 'admin',
-    }, 'admin');
+      sent_by: actor.email,
+    }, actor.email);
     return jsonResponse({
       success: true,
       session_id: result.sessionId,
@@ -395,7 +397,7 @@ export async function sendPaymentLinkAction(request, env, phone) {
     await logEvent(env, phone, 'payment_link_send_failed', {
       session_id: result.sessionId,
       reason: result.error,
-    }, 'admin');
+    }, actor.email);
     const msg = result.error === 'csw_closed_no_template'
       ? 'العميل خارج نافذة الـ24 ساعة وقالب الدفع غير مفعّل. تم إنشاء الرابط — أرسله يدوياً:'
       : 'تم إنشاء الرابط لكن فشل إرساله عبر واتساب. الرابط:';
@@ -419,7 +421,7 @@ export async function sendPaymentLinkAction(request, env, phone) {
  * Skipped silently if CSW is closed (no Meta-approved refund template
  * yet — refunds are too rare to warrant one).
  */
-export async function refundPaymentAction(request, env, paymentId) {
+export async function refundPaymentAction(request, env, paymentId, actor) {
   let body;
   try { body = await request.json(); } catch { body = {}; }
   const requestedAmount = parseFloat(body.amount_kwd);
@@ -497,7 +499,7 @@ export async function refundPaymentAction(request, env, paymentId) {
     is_full: isFullRefund,
     reason,
     subscription_terminated: subscriptionTerminated,
-  }, 'admin');
+  }, actor.email);
 
   // Optional customer WhatsApp note. Free-form only — needs CSW open.
   let notified = false;
@@ -539,7 +541,7 @@ export async function refundPaymentAction(request, env, paymentId) {
  * Refuses to touch a `paid` intent (operator should use refund instead,
  * once that flow exists).
  */
-export async function cancelPaymentIntentAction(request, env, sessionId) {
+export async function cancelPaymentIntentAction(request, env, sessionId, actor) {
   const intent = await env.DB.prepare(
     `SELECT * FROM payment_intents WHERE session_id = ?`
   ).bind(sessionId).first();
@@ -569,8 +571,8 @@ export async function cancelPaymentIntentAction(request, env, sessionId) {
 
   await logEvent(env, intent.phone, 'payment_link_canceled', {
     session_id: sessionId,
-    canceled_by: 'admin',
-  }, 'admin');
+    canceled_by: actor.email,
+  }, actor.email);
 
   return jsonResponse({ success: true });
 }

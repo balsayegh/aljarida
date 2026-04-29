@@ -225,17 +225,38 @@ export function pageShell(title, activePage, bodyHtml) {
   <div class="topnav-brand">جريدة الجريدة الرقمية</div>
   <div class="topnav-links">
     <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
-    <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}">المشتركون</a>
-    <a href="/admin/payments" class="${activePage === 'payments' ? 'active' : ''}">الدفعات</a>
+    <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}" data-roles="supervisor,billing">المشتركون</a>
+    <a href="/admin/payments" class="${activePage === 'payments' ? 'active' : ''}" data-roles="supervisor,billing">الدفعات</a>
     <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}">سجل الإرسال</a>
-    <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}">التنبيهات</a>
+    <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}" data-roles="supervisor,publisher">التنبيهات</a>
+    <a href="/admin/admins" class="${activePage === 'admins' ? 'active' : ''}" data-roles="supervisor">المستخدمون</a>
   </div>
   <div class="topnav-actions">
+    <span id="navAdminLabel" class="muted" style="font-size:13px"></span>
     <form method="POST" action="/admin/logout" style="margin:0">
       <button type="submit">تسجيل الخروج</button>
     </form>
   </div>
 </nav>
+<script>
+// Hide nav links the current admin's role isn't allowed to see.
+// data-roles="" or absent = visible to everyone (e.g. dashboard, broadcasts).
+(async () => {
+  try {
+    const r = await fetch('/admin/api/me');
+    if (!r.ok) return;
+    const { admin } = await r.json();
+    if (!admin) return;
+    document.querySelectorAll('.topnav-links a[data-roles]').forEach(a => {
+      const roles = a.dataset.roles.split(',').map(s => s.trim()).filter(Boolean);
+      if (!roles.includes(admin.role)) a.style.display = 'none';
+    });
+    const label = document.getElementById('navAdminLabel');
+    const roleAr = { supervisor: 'مشرف', billing: 'محاسب', publisher: 'ناشر' }[admin.role] || admin.role;
+    if (label) label.textContent = (admin.display_name || admin.email) + ' • ' + roleAr;
+  } catch {}
+})();
+</script>
 
 <div class="container">
 ${bodyHtml}
@@ -269,7 +290,8 @@ export function renderLoginPage(errorMessage = null) {
   <p class="subtitle">لوحة التحكم — تسجيل الدخول</p>
   ${errorMessage ? `<div class="alert alert-error">${errorMessage}</div>` : ''}
   <form method="POST" action="/admin/login">
-    <input type="password" name="password" placeholder="كلمة المرور" required autofocus dir="ltr">
+    <input type="email" name="email" placeholder="البريد الإلكتروني" required autofocus dir="ltr" autocomplete="username" style="margin-bottom:12px">
+    <input type="password" name="password" placeholder="كلمة المرور" required dir="ltr" autocomplete="current-password">
     <button type="submit" class="primary" style="width:100%">دخول</button>
   </form>
 </div>
@@ -1211,4 +1233,195 @@ setInterval(loadFailures, 30000);
 </script>
   `;
   return pageShell('التنبيهات', 'failures', body);
+}
+
+// ----------------------------------------------------------------------------
+// Admins management page (supervisor only — server-side enforces)
+// ----------------------------------------------------------------------------
+
+export function renderAdminsPage() {
+  const body = `
+<h1>المستخدمون</h1>
+<p class="subtitle">إدارة حسابات المشرفين والمحاسبين والناشرين</p>
+
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
+    <h2 style="margin:0">القائمة</h2>
+    <button class="primary" onclick="openAddAdmin()">+ إضافة مستخدم</button>
+  </div>
+  <div id="adminsContainer"><div class="empty-state" style="padding:30px">جارٍ التحميل…</div></div>
+</div>
+
+<div class="modal" id="addAdminModal" style="display:none">
+  <div class="modal-backdrop" onclick="closeModal('addAdminModal')"></div>
+  <div class="modal-content">
+    <h2>إضافة مستخدم</h2>
+    <label>البريد الإلكتروني</label>
+    <input type="email" id="newAdminEmail" placeholder="user@example.com" dir="ltr">
+    <label>الاسم (اختياري)</label>
+    <input type="text" id="newAdminName" placeholder="أحمد السالم">
+    <label>الدور</label>
+    <select id="newAdminRole">
+      <option value="supervisor">مشرف (وصول كامل)</option>
+      <option value="billing" selected>محاسب (المشتركون والدفعات)</option>
+      <option value="publisher">ناشر (إرسال العدد فقط)</option>
+    </select>
+    <label>كلمة المرور (8 أحرف على الأقل)</label>
+    <input type="text" id="newAdminPassword" placeholder="كلمة مرور قوية" dir="ltr">
+    <div class="alert alert-info" style="font-size:13px; margin-top:8px">
+      ℹ️ أنت من يحدد كلمة المرور وتشاركها مع المستخدم خارج النظام.
+    </div>
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal('addAdminModal')">إلغاء</button>
+      <button class="primary" onclick="doCreateAdmin()">إنشاء</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="resetPwModal" style="display:none">
+  <div class="modal-backdrop" onclick="closeModal('resetPwModal')"></div>
+  <div class="modal-content">
+    <h2>إعادة تعيين كلمة المرور</h2>
+    <p id="resetPwTarget" class="muted"></p>
+    <label>كلمة المرور الجديدة (8 أحرف على الأقل)</label>
+    <input type="text" id="resetPwInput" placeholder="كلمة مرور جديدة" dir="ltr">
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal('resetPwModal')">إلغاء</button>
+      <button class="primary" onclick="doResetPassword()">حفظ</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+.modal-content { position: relative; background: white; border-radius: 12px; padding: 28px; max-width: 500px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 10px 40px rgba(0,0,0,0.2); }
+.modal-content h2 { margin: 0 0 20px; font-size: 20px; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.role-badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+.role-supervisor { background:#fce8e6; color:#c5221f; }
+.role-billing    { background:#e0f2fe; color:#0369a1; }
+.role-publisher  { background:#fff4e5; color:#b45309; }
+</style>
+
+<script>
+let adminsList = [];
+
+async function loadAdmins() {
+  const container = document.getElementById('adminsContainer');
+  try {
+    const r = await fetch('/admin/api/admins');
+    const d = await r.json();
+    if (!d.admins) {
+      container.innerHTML = '<div class="alert alert-error">' + (d.error || 'خطأ') + '</div>';
+      return;
+    }
+    adminsList = d.admins;
+    if (!d.admins.length) {
+      container.innerHTML = '<div class="empty-state" style="padding:30px">لا يوجد مستخدمون</div>';
+      return;
+    }
+    let html = '<table><thead><tr>' +
+      '<th>البريد</th><th>الاسم</th><th>الدور</th><th>الحالة</th><th>آخر دخول</th><th>إجراءات</th>' +
+      '</tr></thead><tbody>';
+    d.admins.forEach(a => {
+      const roleAr = { supervisor: 'مشرف', billing: 'محاسب', publisher: 'ناشر' }[a.role] || a.role;
+      const roleBadge = '<span class="role-badge role-' + a.role + '">' + roleAr + '</span>';
+      const status = a.active
+        ? '<span class="badge badge-active">نشط</span>'
+        : '<span class="badge badge-paused">معطّل</span>';
+      const lastLogin = a.last_login_at ? formatDateTime(a.last_login_at) : '<span class="muted">لم يدخل بعد</span>';
+      const buttons = [];
+      buttons.push('<button class="secondary small" onclick="openResetPassword(' + a.id + ')">إعادة تعيين كلمة المرور</button>');
+      if (a.active) {
+        buttons.push('<button class="danger" onclick="toggleActive(' + a.id + ', false)">تعطيل</button>');
+      } else {
+        buttons.push('<button class="secondary small" onclick="toggleActive(' + a.id + ', true)">إعادة تفعيل</button>');
+      }
+      html += '<tr>' +
+        '<td class="phone">' + escapeHtml(a.email) + '</td>' +
+        '<td>' + (escapeHtml(a.display_name) || '<span class="muted">—</span>') + '</td>' +
+        '<td>' + roleBadge + '</td>' +
+        '<td>' + status + '</td>' +
+        '<td>' + lastLogin + '</td>' +
+        '<td>' + buttons.join(' ') + '</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '<div class="alert alert-error">خطأ: ' + err.message + '</div>';
+  }
+}
+
+function openAddAdmin() {
+  document.getElementById('newAdminEmail').value = '';
+  document.getElementById('newAdminName').value = '';
+  document.getElementById('newAdminRole').value = 'billing';
+  document.getElementById('newAdminPassword').value = '';
+  openModal('addAdminModal');
+}
+
+async function doCreateAdmin() {
+  const email = document.getElementById('newAdminEmail').value.trim();
+  const display_name = document.getElementById('newAdminName').value.trim();
+  const role = document.getElementById('newAdminRole').value;
+  const password = document.getElementById('newAdminPassword').value;
+  if (password.length < 8) { alert('كلمة المرور يجب أن تكون 8 أحرف على الأقل'); return; }
+  const r = await fetch('/admin/api/admins', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, display_name, role, password }),
+  });
+  const d = await r.json();
+  if (d.success) { closeModal('addAdminModal'); loadAdmins(); }
+  else alert(d.error || 'فشل الإنشاء');
+}
+
+function openResetPassword(adminId) {
+  const a = adminsList.find(x => x.id === adminId);
+  document.getElementById('resetPwTarget').textContent = a ? a.email : '';
+  document.getElementById('resetPwInput').value = '';
+  document.getElementById('resetPwModal').dataset.adminId = adminId;
+  openModal('resetPwModal');
+}
+
+async function doResetPassword() {
+  const adminId = document.getElementById('resetPwModal').dataset.adminId;
+  const password = document.getElementById('resetPwInput').value;
+  if (password.length < 8) { alert('كلمة المرور يجب أن تكون 8 أحرف على الأقل'); return; }
+  const r = await fetch('/admin/api/admins/' + adminId, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  });
+  const d = await r.json();
+  if (d.success) { closeModal('resetPwModal'); alert('تم تحديث كلمة المرور'); loadAdmins(); }
+  else alert(d.error || 'فشل التحديث');
+}
+
+async function toggleActive(adminId, active) {
+  const verb = active ? 'إعادة تفعيل' : 'تعطيل';
+  if (!confirm(verb + ' هذا المستخدم؟')) return;
+  const r = await fetch('/admin/api/admins/' + adminId, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ active: active ? 1 : 0 }),
+  });
+  const d = await r.json();
+  if (d.success) loadAdmins();
+  else alert(d.error || 'فشل');
+}
+
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function formatDateTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts);
+  return d.toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' }) +
+    ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+loadAdmins();
+</script>
+  `;
+  return pageShell('المستخدمون', 'admins', body);
 }

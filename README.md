@@ -81,7 +81,7 @@ Set via `wrangler secret put NAME` and confirmed with `wrangler secret list`. Ne
 | `WHATSAPP_BUSINESS_ACCOUNT_ID` | WABA ID |
 | `OTTU_API_KEY` | Ottu API key (private) |
 | `OTTU_WEBHOOK_SECRET` | HMAC key for Ottu webhook signature verification |
-| `ADMIN_PASSWORD` | Admin panel password |
+| `ADMIN_PASSWORD` | Session-cookie HMAC signing key + bootstrap password for the very first supervisor login (used only when the `admins` table is empty). After bootstrap, login is by `admins`-table email/password; this secret stays around purely as the session-cookie signing key. |
 
 ## Database shape
 
@@ -122,13 +122,24 @@ Free-form (non-template) messages live in `src/templates.js` and inline in `src/
 
 ## Admin panel
 
-Open `https://aljarida-whatsapp.mnakh.workers.dev/admin` and log in with `ADMIN_PASSWORD`. Top nav:
+Open `https://aljarida-whatsapp.mnakh.workers.dev/admin` and log in with email + password.
 
-- **Dashboard** — payment summary cards, broadcast trigger
-- **Subscribers** — list with payment status column, manual-add form (مشترك / تجريبي / مجاني)
-- **Payments** — global filterable payment log with reconciliation totals
-- **Broadcasts** — daily PDF send history + per-recipient status
-- **Failures** — DLQ inspection
+**First login (bootstrap):** when the `admins` table is empty (right after the migration), the first login uses the legacy `ADMIN_PASSWORD` as the password and seeds a supervisor row from the email you supply. After that, every login goes through the table.
+
+**Roles:**
+- **Supervisor** — full access including `Users` (admin management).
+- **Billing** — subscribers, payments, refunds, send links, manual add. No broadcast trigger, no DLQ.
+- **Publisher** — broadcast trigger, broadcasts history, DLQ failures. No subscriber/payment access.
+
+**Top nav (visibility per role):**
+- **Dashboard** — all roles (cards visible to everyone)
+- **Subscribers** — supervisor + billing
+- **Payments** — supervisor + billing
+- **Broadcasts** — all roles
+- **Failures** — supervisor + publisher
+- **Users** — supervisor only
+
+Admins are managed at `/admin/admins`: create with email + name + role + initial password, reset password, deactivate. Self-protection: you can't deactivate yourself or demote the last active supervisor.
 
 ## Useful endpoints
 

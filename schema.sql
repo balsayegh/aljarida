@@ -174,6 +174,25 @@ CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date DESC);
 CREATE INDEX IF NOT EXISTS idx_payments_state ON payments(state);
 
 -- ----------------------------------------------------------------------------
+-- Admins (multi-user with roles: supervisor, billing, publisher)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admins (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  email                 TEXT UNIQUE NOT NULL,
+  display_name          TEXT,
+  password_hash         TEXT NOT NULL,
+  password_salt         TEXT NOT NULL,
+  role                  TEXT NOT NULL CHECK(role IN ('supervisor', 'billing', 'publisher')),
+  active                INTEGER NOT NULL DEFAULT 1,
+  created_at            INTEGER NOT NULL,
+  created_by            INTEGER,
+  last_login_at         INTEGER,
+  password_changed_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admins_email ON admins(email);
+
+-- ----------------------------------------------------------------------------
 -- Subscription events (lifecycle audit log)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS subscription_events (

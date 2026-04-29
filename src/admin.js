@@ -1,39 +1,26 @@
 /**
- * Admin router and authentication.
+ * Admin router, authentication, role-based access control.
  *
- * Pages:
- *   GET  /admin                      → dashboard (stats + send today)
- *   GET  /admin/subscribers          → subscriber list
- *   GET  /admin/subscribers/:phone   → single subscriber detail
- *   GET  /admin/broadcasts           → broadcast history
- *   GET  /admin/broadcasts/:id       → broadcast detail with per-recipient status
+ * Auth model (post-2026-04-29):
+ *   - admins table holds email + PBKDF2 hash + role (supervisor/billing/publisher)
+ *   - Login is email + password
+ *   - Session cookie carries admin_id, signed with HMAC keyed by env.ADMIN_PASSWORD
+ *     (kept around as a session-signing secret only — NOT a login credential)
+ *   - Bootstrap: if the admins table is empty AND the entered password matches
+ *     env.ADMIN_PASSWORD, the first login seeds a supervisor row. After that,
+ *     ADMIN_PASSWORD is unused for login.
  *
- * API endpoints:
- *   POST /admin/login
- *   POST /admin/logout
- *   GET  /admin/api/stats
- *   GET  /admin/api/subscribers?state=X&search=Y
- *   POST /admin/api/subscribers/add
- *   PATCH /admin/api/subscribers/:phone
- *   DELETE /admin/api/subscribers/:phone
- *   POST /admin/api/broadcast
- *   GET  /admin/api/broadcasts
- *   GET  /admin/api/broadcasts/:id
+ * Permission model:
+ *   - supervisor : everything, including managing other admins
+ *   - billing    : subscriber CRUD + payment ops + global payments page
+ *   - publisher  : broadcast trigger + broadcast history + DLQ failures
  *
- *   [v2 additions]
- *   GET  /admin/api/subscribers/:phone         → full detail with events + payments
- *   POST /admin/api/subscribers/:phone/extend  → extend subscription
- *   POST /admin/api/subscribers/:phone/change-phone  → change phone with verification
- *   POST /admin/api/subscribers/:phone/tags    → add tag
- *   DELETE /admin/api/subscribers/:phone/tags/:tag  → remove tag
- *   POST /admin/api/subscribers/:phone/plan    → change plan type
- *   POST /admin/api/subscribers/:phone/payments → record manual payment
- *   GET  /admin/api/subscribers/:phone/payments → list payments
- *   GET  /admin/api/subscribers/:phone/events  → event history
+ * Each route declares the role(s) it accepts via requireRole(). Server-side
+ * enforcement is the source of truth — UI hiding is for UX only.
  */
 
 import { renderLoginPage } from './admin_pages.js';
-import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage, renderFailuresPage } from './admin_pages.js';
+import { renderDashboardPage, renderSubscribersPage, renderBroadcastsPage, renderBroadcastDetailPage, renderFailuresPage, renderAdminsPage } from './admin_pages.js';
 import { renderSubscriberDetailPage } from './admin_subscriber_detail.js';
 import { renderPaymentsPage, handlePaymentsApi } from './admin_payments.js';
 import { handleBroadcast } from './admin_broadcast.js';
@@ -43,7 +30,12 @@ import {
   getEvents, getPayments, sendPaymentLinkAction, cancelPaymentIntentAction,
   refundPaymentAction,
 } from './admin_api_v2.js';
-import { timingSafeEqual } from './crypto_util.js';
+import {
+  hashPassword, verifyPassword,
+  createSessionCookie, verifySessionCookie,
+  loadAdmin,
+  ROLE_SUPERVISOR, ROLE_BILLING, ROLE_PUBLISHER, ALL_ROLES,
+} from './auth.js';
 import { getKuwaitDateParts } from './date_util.js';
 import { createAndSendCheckoutLink } from './payment.js';
 import { sendGiftWelcomeTemplate } from './whatsapp.js';
@@ -55,121 +47,221 @@ export async function handleAdminRequest(request, env, ctx, url) {
   const path = url.pathname;
   const method = request.method;
 
+  // Login is the one route that must work BEFORE auth — everything else
+  // requires a valid session.
   if (path === '/admin/login' && method === 'POST') {
     return handleLogin(request, env);
   }
 
-  const isAuthed = await verifySession(request, env);
+  // Logout is symmetric — clears the cookie regardless of session state.
+  if (path === '/admin/logout' && method === 'POST') {
+    return handleLogout();
+  }
 
-  if (!isAuthed) {
-    // JSON 401 for API calls; login page for any HTML route (so new pages work without this list)
+  // From here every request requires a valid session. Resolve once and
+  // pass the admin object into the dispatcher.
+  const session = await resolveSession(request, env);
+  if (!session.admin) {
     if (method === 'GET' && !path.startsWith('/admin/api/')) {
       return htmlResponse(renderLoginPage());
     }
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
-  if (path === '/admin/logout' && method === 'POST') {
-    return handleLogout();
-  }
+  return dispatch(request, env, ctx, url, session.admin);
+}
 
-  // HTML pages
+/**
+ * Authenticated routing. `admin` is the resolved session-bound admin row
+ * (id, email, display_name, role, active). `requireRole(admin, [...])`
+ * returns a 403 response when the role doesn't match — caller propagates
+ * by returning that response.
+ */
+async function dispatch(request, env, ctx, url, admin) {
+  const path = url.pathname;
+  const method = request.method;
+
+  // ---------- HTML pages (GET) ----------
   if (method === 'GET') {
-    if (path === '/admin') return htmlResponse(renderDashboardPage());
-    if (path === '/admin/subscribers') return htmlResponse(renderSubscribersPage());
-    if (path === '/admin/payments') return htmlResponse(renderPaymentsPage());
-    if (path === '/admin/broadcasts') return htmlResponse(renderBroadcastsPage());
-    if (path === '/admin/failures') return htmlResponse(renderFailuresPage());
+    if (path === '/admin')                       return htmlResponse(renderDashboardPage());
+    if (path === '/admin/subscribers') {
+      const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+      if (denied) return denied;
+      return htmlResponse(renderSubscribersPage());
+    }
+    if (path === '/admin/payments') {
+      const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+      if (denied) return denied;
+      return htmlResponse(renderPaymentsPage());
+    }
+    if (path === '/admin/broadcasts') {
+      // All roles see broadcast history — billing for context, publisher for theirs
+      return htmlResponse(renderBroadcastsPage());
+    }
+    if (path === '/admin/failures') {
+      const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_PUBLISHER]);
+      if (denied) return denied;
+      return htmlResponse(renderFailuresPage());
+    }
+    if (path === '/admin/admins') {
+      const denied = requireRole(admin, [ROLE_SUPERVISOR]);
+      if (denied) return denied;
+      return htmlResponse(renderAdminsPage());
+    }
 
     const subDetailMatch = path.match(/^\/admin\/subscribers\/([^\/]+)$/);
-    if (subDetailMatch) return htmlResponse(renderSubscriberDetailPage(decodeURIComponent(subDetailMatch[1])));
+    if (subDetailMatch) {
+      const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+      if (denied) return denied;
+      return htmlResponse(renderSubscriberDetailPage(decodeURIComponent(subDetailMatch[1])));
+    }
 
     const bcMatch = path.match(/^\/admin\/broadcasts\/(\d+)$/);
     if (bcMatch) return htmlResponse(renderBroadcastDetailPage(bcMatch[1]));
   }
 
-  // JSON API endpoints
+  // ---------- JSON API ----------
+
+  // Self info — every admin can read their own row
+  if (path === '/admin/api/me' && method === 'GET') {
+    return jsonResponse({ admin: serializeAdmin(admin) });
+  }
+
+  // Stats (dashboard) — all roles see basic stats
   if (path === '/admin/api/stats' && method === 'GET') {
     return handleApiStats(env);
   }
 
+  // Admin management (supervisor only)
+  if (path === '/admin/api/admins' && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR]);
+    if (denied) return denied;
+    return handleApiAdminsList(env);
+  }
+  if (path === '/admin/api/admins' && method === 'POST') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR]);
+    if (denied) return denied;
+    return handleApiAdminCreate(request, env, admin);
+  }
+  const apiAdminEditMatch = path.match(/^\/admin\/api\/admins\/(\d+)$/);
+  if (apiAdminEditMatch && method === 'PATCH') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR]);
+    if (denied) return denied;
+    return handleApiAdminUpdate(request, env, parseInt(apiAdminEditMatch[1], 10), admin);
+  }
+
+  // Subscribers — supervisor + billing
   if (path === '/admin/api/subscribers' && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
     return handleApiSubscribersList(request, env);
   }
 
   if (path === '/admin/api/subscribers/add' && method === 'POST') {
-    return handleApiSubscriberAdd(request, env);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return handleApiSubscriberAdd(request, env, admin);
   }
 
   const apiDetailMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)$/);
   if (apiDetailMatch && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
     return getSubscriberDetail(request, env, apiDetailMatch[1]);
   }
   if (apiDetailMatch && method === 'PATCH') {
-    return handleApiSubscriberUpdate(request, env, apiDetailMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return handleApiSubscriberUpdate(request, env, apiDetailMatch[1], admin);
   }
   if (apiDetailMatch && method === 'DELETE') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
     return handleApiSubscriberDelete(env, apiDetailMatch[1]);
   }
 
   const apiExtendMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/extend$/);
   if (apiExtendMatch && method === 'POST') {
-    return extendSubscriptionAction(request, env, apiExtendMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return extendSubscriptionAction(request, env, apiExtendMatch[1], admin);
   }
 
   const apiChangePhoneMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/change-phone$/);
   if (apiChangePhoneMatch && method === 'POST') {
-    return changePhoneAction(request, env, apiChangePhoneMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return changePhoneAction(request, env, apiChangePhoneMatch[1], admin);
   }
 
   const apiTagsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/tags$/);
   if (apiTagsMatch && method === 'POST') {
-    return addTagAction(request, env, apiTagsMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return addTagAction(request, env, apiTagsMatch[1], admin);
   }
 
   const apiTagRemoveMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/tags\/(.+)$/);
   if (apiTagRemoveMatch && method === 'DELETE') {
-    return removeTagAction(request, env, apiTagRemoveMatch[1], decodeURIComponent(apiTagRemoveMatch[2]));
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return removeTagAction(request, env, apiTagRemoveMatch[1], decodeURIComponent(apiTagRemoveMatch[2]), admin);
   }
 
   const apiPlanMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/plan$/);
   if (apiPlanMatch && method === 'POST') {
-    return changePlanAction(request, env, apiPlanMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return changePlanAction(request, env, apiPlanMatch[1], admin);
   }
 
   const apiPaymentsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/payments$/);
   if (apiPaymentsMatch) {
-    if (method === 'POST') return addPaymentAction(request, env, apiPaymentsMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    if (method === 'POST') return addPaymentAction(request, env, apiPaymentsMatch[1], admin);
     if (method === 'GET') return getPayments(request, env, apiPaymentsMatch[1]);
   }
 
   const apiSendLinkMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/send-payment-link$/);
   if (apiSendLinkMatch && method === 'POST') {
-    return sendPaymentLinkAction(request, env, apiSendLinkMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return sendPaymentLinkAction(request, env, apiSendLinkMatch[1], admin);
   }
 
   // Cancel an Ottu payment intent. session_id is hex (40 chars typically),
   // so we accept any non-slash chars rather than constraining the pattern.
   const apiCancelIntent = path.match(/^\/admin\/api\/payment-intents\/([^\/]+)\/cancel$/);
   if (apiCancelIntent && method === 'POST') {
-    return cancelPaymentIntentAction(request, env, decodeURIComponent(apiCancelIntent[1]));
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return cancelPaymentIntentAction(request, env, decodeURIComponent(apiCancelIntent[1]), admin);
   }
 
   // Refund a payment (full or partial). payment_id is the integer PK on payments.
   const apiRefundMatch = path.match(/^\/admin\/api\/payments\/(\d+)\/refund$/);
   if (apiRefundMatch && method === 'POST') {
-    return refundPaymentAction(request, env, apiRefundMatch[1]);
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return refundPaymentAction(request, env, apiRefundMatch[1], admin);
   }
 
   const apiEventsMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/events$/);
   if (apiEventsMatch && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
     return getEvents(request, env, apiEventsMatch[1]);
   }
 
+  // Broadcasts trigger (publisher + supervisor)
   if (path === '/admin/api/broadcast' && method === 'POST') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_PUBLISHER]);
+    if (denied) return denied;
     return handleBroadcast(request, env, ctx);
   }
 
+  // Broadcasts list/detail — all roles
   if (path === '/admin/api/broadcasts' && method === 'GET') {
     return handleApiBroadcastsList(env);
   }
@@ -179,60 +271,109 @@ export async function handleAdminRequest(request, env, ctx, url) {
     return handleApiBroadcastDetail(env, broadcastDetailMatch[1], request);
   }
 
+  // Failures — supervisor + publisher
   if (path === '/admin/api/failures' && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_PUBLISHER]);
+    if (denied) return denied;
     return handleApiFailures(request, env);
   }
 
+  // Global payments page API — supervisor + billing
   if (path === '/admin/api/payments' && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
     return handlePaymentsApi(request, env);
   }
 
   return new Response('Not found', { status: 404 });
 }
 
-async function handleApiFailures(request, env) {
-  const url = new URL(request.url);
-  const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10)));
+// ----------------------------------------------------------------------------
+// Auth: session resolution + login + logout
+// ----------------------------------------------------------------------------
 
-  const [{ results }, total] = await Promise.all([
-    env.DB.prepare(
-      `SELECT f.id, f.broadcast_id, f.phone, f.payload, f.failed_at,
-              b.date_string, b.status as broadcast_status
-       FROM broadcast_failures f
-       LEFT JOIN broadcasts b ON b.id = f.broadcast_id
-       ORDER BY f.failed_at DESC
-       LIMIT ?`
-    ).bind(limit).all(),
-    env.DB.prepare(`SELECT COUNT(*) as c FROM broadcast_failures`).first(),
-  ]);
+/**
+ * Read the cookie, verify the signature, look up the admin row.
+ * Returns { admin: row | null }. Inactive or missing admin → null.
+ */
+async function resolveSession(request, env) {
+  const cookie = request.headers.get('Cookie') || '';
+  const match = cookie.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
+  if (!match) return { admin: null };
 
-  return jsonResponse({ failures: results, total: total?.c || 0 });
+  const session = await verifySessionCookie(match[1], env);
+  if (!session) return { admin: null };
+
+  const admin = await loadAdmin(env, session.adminId);
+  return { admin };
 }
-
-// ----------------------------------------------------------------------------
-// Authentication
-// ----------------------------------------------------------------------------
 
 async function handleLogin(request, env) {
   try {
     const formData = await request.formData();
-    const password = formData.get('password');
+    const email = (formData.get('email') || '').toString().trim().toLowerCase();
+    const password = (formData.get('password') || '').toString();
 
-    if (!password || password !== env.ADMIN_PASSWORD) {
-      return htmlResponse(renderLoginPage('كلمة المرور غير صحيحة'));
+    if (!email || !password) {
+      return htmlResponse(renderLoginPage('يرجى إدخال البريد وكلمة المرور'));
     }
 
-    const token = await createSessionToken(env);
+    let admin = await env.DB.prepare(
+      `SELECT id, email, display_name, role, active, password_hash, password_salt
+       FROM admins WHERE email = ?`
+    ).bind(email).first();
+
+    // Bootstrap: if admins table is empty AND password matches the
+    // legacy ADMIN_PASSWORD, seed a supervisor row from this login.
+    if (!admin) {
+      const anyAdmin = await env.DB.prepare(`SELECT 1 FROM admins LIMIT 1`).first();
+      if (!anyAdmin && env.ADMIN_PASSWORD && password === env.ADMIN_PASSWORD) {
+        admin = await bootstrapFirstSupervisor(env, email, password);
+      }
+    }
+
+    if (!admin) {
+      return htmlResponse(renderLoginPage('بيانات الدخول غير صحيحة'));
+    }
+    if (!admin.active) {
+      return htmlResponse(renderLoginPage('هذا الحساب معطّل. تواصل مع المشرف.'));
+    }
+
+    const ok = await verifyPassword(password, admin.password_hash, admin.password_salt);
+    if (!ok) {
+      return htmlResponse(renderLoginPage('بيانات الدخول غير صحيحة'));
+    }
+
+    // Mint session cookie + record last_login_at
+    const cookie = await createSessionCookie(env, admin.id, SESSION_DURATION_MS);
+    await env.DB.prepare(`UPDATE admins SET last_login_at = ? WHERE id = ?`)
+      .bind(Date.now(), admin.id).run();
+
     return new Response(null, {
       status: 302,
       headers: {
         'Location': '/admin',
-        'Set-Cookie': `${SESSION_COOKIE_NAME}=${token}; Path=/admin; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DURATION_MS / 1000}`,
+        'Set-Cookie': `${SESSION_COOKIE_NAME}=${cookie}; Path=/admin; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DURATION_MS / 1000}`,
       },
     });
   } catch (err) {
+    console.error('[admin] login error:', err);
     return htmlResponse(renderLoginPage('حدث خطأ، حاول مجدداً'));
   }
+}
+
+async function bootstrapFirstSupervisor(env, email, password) {
+  const { hash, salt } = await hashPassword(password);
+  const now = Date.now();
+  await env.DB.prepare(
+    `INSERT INTO admins (email, display_name, password_hash, password_salt, role, active, created_at, password_changed_at)
+     VALUES (?, ?, ?, ?, 'supervisor', 1, ?, ?)`
+  ).bind(email, email.split('@')[0], hash, salt, now, now).run();
+  console.log(`[admin] bootstrapped first supervisor: ${email}`);
+  return env.DB.prepare(
+    `SELECT id, email, display_name, role, active, password_hash, password_salt
+     FROM admins WHERE email = ?`
+  ).bind(email).first();
 }
 
 function handleLogout() {
@@ -245,41 +386,155 @@ function handleLogout() {
   });
 }
 
-async function createSessionToken(env) {
-  const expiresAt = Date.now() + SESSION_DURATION_MS;
-  const payload = `${expiresAt}`;
-  const signature = await signHmac(payload, env.ADMIN_PASSWORD);
-  return `${btoa(payload)}.${signature}`;
+// ----------------------------------------------------------------------------
+// Permission helpers
+// ----------------------------------------------------------------------------
+
+/**
+ * Returns null if the admin's role is in `allowed`. Otherwise returns a
+ * 403 jsonResponse — caller propagates it directly. This pattern keeps
+ * the route table dense and grep-friendly.
+ */
+function requireRole(admin, allowed) {
+  if (allowed.includes(admin.role)) return null;
+  return jsonResponse({ error: 'صلاحياتك لا تسمح بهذا الإجراء' }, 403);
 }
 
-async function verifySession(request, env) {
-  const cookie = request.headers.get('Cookie') || '';
-  const match = cookie.match(new RegExp(`${SESSION_COOKIE_NAME}=([^;]+)`));
-  if (!match) return false;
+function serializeAdmin(admin) {
+  return {
+    id: admin.id,
+    email: admin.email,
+    display_name: admin.display_name,
+    role: admin.role,
+  };
+}
 
-  const [encodedPayload, signature] = match[1].split('.');
-  if (!encodedPayload || !signature) return false;
+// ----------------------------------------------------------------------------
+// Admin management API (supervisor only)
+// ----------------------------------------------------------------------------
 
+async function handleApiAdminsList(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, email, display_name, role, active, created_at, last_login_at, password_changed_at
+     FROM admins
+     ORDER BY active DESC, created_at DESC`
+  ).all();
+  return jsonResponse({ admins: results });
+}
+
+async function handleApiAdminCreate(request, env, actor) {
   try {
-    const payload = atob(encodedPayload);
-    const expectedSignature = await signHmac(payload, env.ADMIN_PASSWORD);
-    if (!timingSafeEqual(signature, expectedSignature)) return false;
-    return parseInt(payload, 10) > Date.now();
-  } catch {
-    return false;
+    const body = await request.json();
+    const email = (body.email || '').trim().toLowerCase();
+    const display_name = (body.display_name || '').trim() || null;
+    const role = body.role;
+    const password = body.password || '';
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return jsonResponse({ error: 'بريد إلكتروني غير صالح' }, 400);
+    }
+    if (!ALL_ROLES.includes(role)) {
+      return jsonResponse({ error: 'الدور غير صالح' }, 400);
+    }
+    if (password.length < 8) {
+      return jsonResponse({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' }, 400);
+    }
+
+    const existing = await env.DB.prepare(`SELECT id FROM admins WHERE email = ?`).bind(email).first();
+    if (existing) {
+      return jsonResponse({ error: 'هذا البريد مستخدم مسبقاً' }, 409);
+    }
+
+    const { hash, salt } = await hashPassword(password);
+    const now = Date.now();
+    const result = await env.DB.prepare(
+      `INSERT INTO admins (email, display_name, password_hash, password_salt, role, active, created_at, created_by, password_changed_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`
+    ).bind(email, display_name, hash, salt, role, now, actor.id, now).run();
+
+    return jsonResponse({ success: true, id: result.meta?.last_row_id });
+  } catch (err) {
+    console.error('[admin] admin create error:', err);
+    return jsonResponse({ error: err.message }, 500);
   }
 }
 
-async function signHmac(data, secret) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+/**
+ * Update an admin row. Supports:
+ *   { active: 0|1 }           — deactivate / reactivate
+ *   { role: 'supervisor'|... } — change role
+ *   { display_name: '...' }    — rename
+ *   { password: '...' }        — reset password (no current-password check; supervisor-driven)
+ *
+ * Self-protection: a supervisor can't deactivate or demote themselves.
+ */
+async function handleApiAdminUpdate(request, env, targetId, actor) {
+  try {
+    const body = await request.json();
+    const target = await env.DB.prepare(
+      `SELECT id, email, role, active FROM admins WHERE id = ?`
+    ).bind(targetId).first();
+    if (!target) return jsonResponse({ error: 'المستخدم غير موجود' }, 404);
+
+    const isSelf = target.id === actor.id;
+    const updates = [];
+    const values = [];
+
+    if (typeof body.active === 'number' || typeof body.active === 'boolean') {
+      const newActive = body.active ? 1 : 0;
+      if (isSelf && newActive === 0) {
+        return jsonResponse({ error: 'لا يمكنك تعطيل حسابك الخاص' }, 400);
+      }
+      updates.push('active = ?');
+      values.push(newActive);
+    }
+
+    if (body.role !== undefined) {
+      if (!ALL_ROLES.includes(body.role)) {
+        return jsonResponse({ error: 'الدور غير صالح' }, 400);
+      }
+      if (isSelf && target.role === 'supervisor' && body.role !== 'supervisor') {
+        // Refuse to demote the only supervisor — count first
+        const count = await env.DB.prepare(
+          `SELECT COUNT(*) AS c FROM admins WHERE role = 'supervisor' AND active = 1`
+        ).first();
+        if ((count?.c || 0) <= 1) {
+          return jsonResponse({ error: 'لا يمكن تخفيض دور آخر مشرف نشط' }, 400);
+        }
+      }
+      updates.push('role = ?');
+      values.push(body.role);
+    }
+
+    if (body.display_name !== undefined) {
+      updates.push('display_name = ?');
+      values.push((body.display_name || '').trim() || null);
+    }
+
+    if (body.password !== undefined) {
+      const password = String(body.password || '');
+      if (password.length < 8) {
+        return jsonResponse({ error: 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' }, 400);
+      }
+      const { hash, salt } = await hashPassword(password);
+      updates.push('password_hash = ?', 'password_salt = ?', 'password_changed_at = ?');
+      values.push(hash, salt, Date.now());
+    }
+
+    if (updates.length === 0) {
+      return jsonResponse({ error: 'لا يوجد ما يُحدَّث' }, 400);
+    }
+
+    values.push(targetId);
+    await env.DB.prepare(
+      `UPDATE admins SET ${updates.join(', ')} WHERE id = ?`
+    ).bind(...values).run();
+
+    return jsonResponse({ success: true });
+  } catch (err) {
+    console.error('[admin] admin update error:', err);
+    return jsonResponse({ error: err.message }, 500);
+  }
 }
 
 // ----------------------------------------------------------------------------
@@ -307,8 +562,6 @@ async function handleApiStats(env) {
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers WHERE state = 'unsubscribed'`).first(),
     env.DB.prepare(`SELECT COUNT(*) as c FROM subscribers WHERE state IN ('offered', 'yes', 'awaiting_payment')`).first(),
     env.DB.prepare(`SELECT * FROM broadcasts ORDER BY started_at DESC LIMIT 1`).first(),
-    // Paid this month: total + count. Treat NULL state as paid for legacy
-    // manual rows (admin "add payment" entries).
     env.DB.prepare(
       `SELECT COALESCE(SUM(amount_kwd), 0) AS total_kwd, COUNT(*) AS c
        FROM payments
@@ -398,7 +651,7 @@ async function handleApiSubscribersList(request, env) {
   });
 }
 
-async function handleApiSubscriberAdd(request, env) {
+async function handleApiSubscriberAdd(request, env, actor) {
   try {
     const body = await request.json();
     const { phone, name, note } = body;
@@ -450,6 +703,9 @@ async function handleApiSubscriberAdd(request, env) {
       consentType = 'paid_admin_initiated';
       consentText = 'Admin initiated paid subscription with attested customer consent';
     } else if (type === 'tester') {
+      // 7-day free trial. Distinct from plan='pilot' which is never-expires
+      // for internal QA accounts. trial expires normally; cron auto-pauses
+      // them on day 8.
       dbState = 'active';
       plan = 'pilot';
       tagsJson = '["pilot"]';
@@ -509,8 +765,8 @@ async function handleApiSubscriberAdd(request, env) {
         : { plan, manual_add: true, type, gift_days: type === 'gift' ? giftDays : undefined };
       await env.DB.prepare(
         `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
-         VALUES (?, ?, ?, 'admin', ?)`
-      ).bind(cleanPhone, eventType, JSON.stringify(details), now).run();
+         VALUES (?, ?, ?, ?, ?)`
+      ).bind(cleanPhone, eventType, JSON.stringify(details), actor.email, now).run();
     } catch {}
 
     // Side effects per type (after the row exists, so the WhatsApp send and
@@ -556,7 +812,7 @@ async function handleApiSubscriberAdd(request, env) {
   }
 }
 
-async function handleApiSubscriberUpdate(request, env, phone) {
+async function handleApiSubscriberUpdate(request, env, phone, actor) {
   try {
     const { state, name, note, subscriptionEndAt } = await request.json();
     const allowedStates = ['active', 'paused', 'unsubscribed', 'new', 'offered'];
@@ -612,8 +868,8 @@ async function handleApiSubscriberUpdate(request, env, phone) {
       try {
         await env.DB.prepare(
           `INSERT INTO subscription_events (phone, event_type, details, performed_by, created_at)
-           VALUES (?, ?, '{}', 'admin', ?)`
-        ).bind(phone, state === 'paused' ? 'paused' : state === 'active' ? 'resumed' : state === 'unsubscribed' ? 'unsubscribed' : 'state_changed', Date.now()).run();
+           VALUES (?, ?, '{}', ?, ?)`
+        ).bind(phone, state === 'paused' ? 'paused' : state === 'active' ? 'resumed' : state === 'unsubscribed' ? 'unsubscribed' : 'state_changed', actor.email, Date.now()).run();
       } catch {}
     }
 
@@ -700,6 +956,29 @@ async function handleApiBroadcastDetail(env, id, request) {
       total_pages: Math.ceil((stats?.total || 0) / perPage),
     },
   });
+}
+
+// ----------------------------------------------------------------------------
+// API: Failures (DLQ)
+// ----------------------------------------------------------------------------
+
+async function handleApiFailures(request, env) {
+  const url = new URL(request.url);
+  const limit = Math.min(500, Math.max(1, parseInt(url.searchParams.get('limit') || '100', 10)));
+
+  const [{ results }, total] = await Promise.all([
+    env.DB.prepare(
+      `SELECT f.id, f.broadcast_id, f.phone, f.payload, f.failed_at,
+              b.date_string, b.status as broadcast_status
+       FROM broadcast_failures f
+       LEFT JOIN broadcasts b ON b.id = f.broadcast_id
+       ORDER BY f.failed_at DESC
+       LIMIT ?`
+    ).bind(limit).all(),
+    env.DB.prepare(`SELECT COUNT(*) as c FROM broadcast_failures`).first(),
+  ]);
+
+  return jsonResponse({ failures: results, total: total?.c || 0 });
 }
 
 // ----------------------------------------------------------------------------

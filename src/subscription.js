@@ -224,7 +224,7 @@ export function parseTags(tagsJson) {
   }
 }
 
-export async function addTag(env, phone, tag) {
+export async function addTag(env, phone, tag, performedBy = 'admin') {
   const sub = await env.DB.prepare(`SELECT tags FROM subscribers WHERE phone = ?`).bind(phone).first();
   if (!sub) throw new Error('Subscriber not found');
   const tags = parseTags(sub.tags);
@@ -232,18 +232,18 @@ export async function addTag(env, phone, tag) {
     tags.push(tag);
     await env.DB.prepare(`UPDATE subscribers SET tags = ? WHERE phone = ?`)
       .bind(JSON.stringify(tags), phone).run();
-    await logEvent(env, phone, 'tag_added', { tag });
+    await logEvent(env, phone, 'tag_added', { tag }, performedBy);
   }
   return tags;
 }
 
-export async function removeTag(env, phone, tag) {
+export async function removeTag(env, phone, tag, performedBy = 'admin') {
   const sub = await env.DB.prepare(`SELECT tags FROM subscribers WHERE phone = ?`).bind(phone).first();
   if (!sub) throw new Error('Subscriber not found');
   const tags = parseTags(sub.tags).filter(t => t !== tag);
   await env.DB.prepare(`UPDATE subscribers SET tags = ? WHERE phone = ?`)
     .bind(JSON.stringify(tags), phone).run();
-  await logEvent(env, phone, 'tag_removed', { tag });
+  await logEvent(env, phone, 'tag_removed', { tag }, performedBy);
   return tags;
 }
 
