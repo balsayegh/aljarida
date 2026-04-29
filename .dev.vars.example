@@ -8,16 +8,23 @@
 #
 # For production, use `wrangler secret put <NAME>` instead (see README)
 
-# From Meta Business Manager → WhatsApp → API Setup
+# WhatsApp / Meta — from Meta Business Manager → WhatsApp → API Setup
 WHATSAPP_ACCESS_TOKEN=EAAxxxxxxxxxxx
 WHATSAPP_PHONE_NUMBER_ID=123456789012345
 WHATSAPP_BUSINESS_ACCOUNT_ID=987654321098765
+
+# Used for Meta inbound webhook signature verification (X-Hub-Signature-256)
+WHATSAPP_APP_SECRET=replace_with_meta_app_secret
 
 # A random string you choose — used to verify webhook ownership.
 # Must match exactly what you enter in Meta Business Manager when configuring
 # the webhook. Any random string works; make it long and unique.
 WHATSAPP_VERIFY_TOKEN=aljarida_replace_this_with_your_own_random_string
 
-# MyFatoorah credentials (for Piece 2 — payment integration)
-MYFATOORAH_API_KEY=
-MYFATOORAH_BASE_URL=https://apitest.myfatoorah.com
+# Ottu payment gateway — from Ottu admin dashboard
+# In prod these live as `wrangler secret put` values; this file is local only.
+OTTU_API_KEY=replace_with_ottu_api_key
+OTTU_WEBHOOK_SECRET=generate_with_openssl_rand_hex_32_and_paste_in_ottu_dashboard_too
+
+# Admin panel password (any string)
+ADMIN_PASSWORD=replace_with_a_strong_password
