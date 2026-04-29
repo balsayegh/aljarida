@@ -457,21 +457,29 @@ export function renderDashboardPage() {
   </div>
 </div>
 
-<!-- Subscription expiry status -->
+<!-- Subscription status — expiry, funnel-stage, and recent activity -->
 <h2 style="margin-top:28px; margin-bottom:12px">حالة الاشتراكات</h2>
 <div class="stats-grid">
-  <a href="/admin/subscribers?expiring=today" class="stat-card expiry-card" style="text-decoration:none">
+  <a href="/admin/subscribers?expiring=today" class="stat-card status-card" style="text-decoration:none">
     <div class="stat-label">اشتراكات تنتهي اليوم</div>
     <div class="stat-value" id="stat-expiring-today">—</div>
   </a>
-  <a href="/admin/subscribers?expiring=7" class="stat-card expiry-card" style="text-decoration:none">
+  <a href="/admin/subscribers?expiring=7" class="stat-card status-card" style="text-decoration:none">
     <div class="stat-label">اشتراكات تنتهي خلال ٧ أيام</div>
     <div class="stat-value" id="stat-expiring-7d">—</div>
   </a>
-  <a href="/admin/subscribers?state=paused" class="stat-card expiry-card" style="text-decoration:none">
+  <a href="/admin/subscribers?state=paused" class="stat-card status-card" style="text-decoration:none">
     <div class="stat-label">اشتراكات منتهية</div>
     <div class="stat-value" id="stat-expired">—</div>
   </a>
+  <div class="stat-card status-card">
+    <div class="stat-label">قيد الاشتراك</div>
+    <div class="stat-value" id="stat-inflight">—</div>
+  </div>
+  <div class="stat-card status-card">
+    <div class="stat-label">جدد 24 ساعة</div>
+    <div class="stat-value" id="stat-new">—</div>
+  </div>
 </div>
 
 <!-- Alerts row (only visible if any alert is non-zero) -->
@@ -496,15 +504,6 @@ export function renderDashboardPage() {
   <div class="stat-card plan-card"><div class="stat-label">مدفوع (سنوي)</div><div class="stat-value" id="stat-plan-yearly">—</div></div>
   <div class="stat-card plan-card"><div class="stat-label">تجريبي</div><div class="stat-value" id="stat-plan-pilot">—</div></div>
   <div class="stat-card plan-card"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
-</div>
-
-<!-- Funnel & growth -->
-<h2 style="margin-top:28px; margin-bottom:12px">الحركة</h2>
-<div class="stats-grid">
-  <div class="stat-card funnel-inflight"><div class="stat-label">قيد الاشتراك</div><div class="stat-value" id="stat-inflight">—</div></div>
-  <div class="stat-card funnel-new"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
-  <div class="stat-card funnel-unsub"><div class="stat-label">ملغي</div><div class="stat-value" id="stat-unsub">—</div></div>
-  <div class="stat-card funnel-total"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
 </div>
 
 <!-- Activity feed -->
@@ -544,11 +543,11 @@ export function renderDashboardPage() {
 .hero-sub { font-size: 13px; margin-top: 6px; color: rgba(255,255,255,0.7); }
 .hero-card .muted { color: rgba(255,255,255,0.65); }
 
-/* Subscription expiry section — uniform brand cream + navy text */
-.stat-card.expiry-card { background: var(--brand-cream); }
-.stat-card.expiry-card:hover { filter: brightness(0.97); }
-.stat-card.expiry-card .stat-label { color: var(--brand-navy); opacity: 0.75; }
-.stat-card.expiry-card .stat-value { color: var(--brand-navy); }
+/* Subscription status section — uniform brand cream + navy text */
+.stat-card.status-card { background: var(--brand-cream); }
+a.stat-card.status-card:hover { filter: brightness(0.97); }
+.stat-card.status-card .stat-label { color: var(--brand-navy); opacity: 0.75; }
+.stat-card.status-card .stat-value { color: var(--brand-navy); }
 
 /* Plan breakdown — uniform brand magenta background with white text */
 .stat-card.plan-card { background: var(--brand-magenta); }
@@ -800,11 +799,9 @@ async function loadDashboard() {
     document.getElementById('stat-plan-pilot').textContent  = p.pilot  || 0;
     document.getElementById('stat-plan-gift').textContent   = p.gift   || 0;
 
-    // Funnel
+    // Funnel-stage metrics live inside the status section now
     document.getElementById('stat-inflight').textContent = f.in_flight || 0;
     document.getElementById('stat-new').textContent      = f.new_today || 0;
-    document.getElementById('stat-unsub').textContent    = f.unsubscribed || 0;
-    document.getElementById('stat-total').textContent    = f.total || 0;
 
     // Charts: current vs last month, daily revenue
     if (s.revenue_current_month) {
