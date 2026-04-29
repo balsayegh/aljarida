@@ -505,30 +505,34 @@ export function renderDashboardPage() {
 .hero-value { font-size: 32px; font-weight: 700; color: #111; line-height: 1.1; }
 .hero-sub { font-size: 13px; margin-top: 6px; }
 
-/* Hero category accents */
-.hero-card.kpi-active    { border-top-color: #10b981; }
+/* Drop the default neutral border on hero cards — colored cards
+   below provide their own background; uncolored ones revert to plain. */
+.hero-card { border-top: none; }
+
+/* Hero category — light tinted background + saturated value text */
+.hero-card.kpi-active    { background: #ecfdf5; }
 .hero-card.kpi-active    .hero-value { color: #047857; }
-.hero-card.kpi-revenue   { border-top-color: #f59e0b; }
+.hero-card.kpi-revenue   { background: #fffbeb; }
 .hero-card.kpi-revenue   .hero-value { color: #b45309; }
-.hero-card.kpi-broadcast { border-top-color: #0066cc; }
+.hero-card.kpi-broadcast { background: #eff6ff; }
 .hero-card.kpi-broadcast .hero-value { color: #0066cc; }
 
-/* Plan-breakdown accents */
-.stat-card.plan-yearly { border-top: 3px solid #10b981; }
+/* Plan-breakdown — same emerald for yearly (positive/paying), differentiated hues for free types */
+.stat-card.plan-yearly { background: #ecfdf5; }
 .stat-card.plan-yearly .stat-value { color: #047857; }
-.stat-card.plan-pilot  { border-top: 3px solid #06b6d4; }
+.stat-card.plan-pilot  { background: #ecfeff; }
 .stat-card.plan-pilot  .stat-value { color: #0e7490; }
-.stat-card.plan-gift   { border-top: 3px solid #ec4899; }
+.stat-card.plan-gift   { background: #fdf2f8; }
 .stat-card.plan-gift   .stat-value { color: #be185d; }
 
-/* Funnel accents */
-.stat-card.funnel-inflight { border-top: 3px solid #a855f7; }
+/* Funnel cards — distinct hues so each is visually a different "story" */
+.stat-card.funnel-inflight { background: #faf5ff; }
 .stat-card.funnel-inflight .stat-value { color: #7e22ce; }
-.stat-card.funnel-new      { border-top: 3px solid #14b8a6; }
+.stat-card.funnel-new      { background: #f0fdfa; }
 .stat-card.funnel-new      .stat-value { color: #0f766e; }
-.stat-card.funnel-unsub    { border-top: 3px solid #94a3b8; }
-.stat-card.funnel-unsub    .stat-value { color: #475569; }
-.stat-card.funnel-total    { border-top: 3px solid #64748b; }
+.stat-card.funnel-unsub    { background: #fff1f2; }
+.stat-card.funnel-unsub    .stat-value { color: #be123c; }
+.stat-card.funnel-total    { background: #f8fafc; }
 .stat-card.funnel-total    .stat-value { color: #334155; }
 
 .alerts-grid {
