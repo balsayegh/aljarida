@@ -1135,7 +1135,14 @@ async function setState(phone, state) {
 }
 
 async function deleteSub(phone) {
-  if (!confirm('حذف هذا المشترك نهائياً من قاعدة البيانات؟')) return;
+  const warning =
+    'حذف نهائي لـ ' + phone + ' وجميع البيانات المرتبطة:\\n' +
+    '— الرسائل والأحداث والوسوم وسجل الموافقات\\n' +
+    '— محاولات الدفع (سيتم إلغاء أي محاولة معلّقة في Ottu)\\n' +
+    '— سجلات البث الخاصة به\\n\\n' +
+    'هذا الإجراء لا يمكن التراجع عنه. هل أنت متأكد؟\\n\\n' +
+    'ملاحظة: المشتركون الذين دفعوا فعلياً لا يمكن حذفهم — استخدم "إلغاء الاشتراك" بدلاً من ذلك.';
+  if (!confirm(warning)) return;
   try {
     const r = await fetch('/admin/api/subscribers/' + phone, { method: 'DELETE' });
     const d = await r.json();

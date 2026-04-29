@@ -558,11 +558,25 @@ export async function cancelPaymentIntentAction(request, env, sessionId, actor) 
     return jsonResponse({ success: true, already_canceled: true });
   }
 
+  // Try cancel in Ottu. If Ottu rejects with an "invalid state" / "does not
+  // exist" 400, it usually means the session has aged out on Ottu's side
+  // (their default expiry is 7-30 days). The intent is functionally dead
+  // either way, so flip our local row to canceled rather than leave it
+  // forever in 'pending' nagging the dashboard.
+  let ottuStaleSession = false;
   try {
     await cancelCheckout(env, sessionId);
   } catch (err) {
-    console.error(`[ottu] cancel failed for ${sessionId}:`, err);
-    return jsonResponse({ error: err.message || 'فشل إلغاء الرابط في Ottu' }, 502);
+    const msg = err?.message || '';
+    const looksStale =
+      msg.includes('invalid state') ||
+      msg.includes('does not exist');
+    if (!looksStale) {
+      console.error(`[ottu] cancel failed for ${sessionId}:`, err);
+      return jsonResponse({ error: msg || 'فشل إلغاء الرابط في Ottu' }, 502);
+    }
+    console.warn(`[ottu] cancel rejected (treating as already-dead) for ${sessionId}:`, msg);
+    ottuStaleSession = true;
   }
 
   await env.DB.prepare(
@@ -572,9 +586,10 @@ export async function cancelPaymentIntentAction(request, env, sessionId, actor) 
   await logEvent(env, intent.phone, 'payment_link_canceled', {
     session_id: sessionId,
     canceled_by: actor.email,
+    ottu_stale: ottuStaleSession,
   }, actor.email);
 
-  return jsonResponse({ success: true });
+  return jsonResponse({ success: true, ottu_stale: ottuStaleSession });
 }
 
 /**

@@ -39,6 +39,7 @@ import {
 import { getKuwaitDateParts } from './date_util.js';
 import { createAndSendCheckoutLink } from './payment.js';
 import { sendGiftWelcomeTemplate } from './whatsapp.js';
+import { cancelCheckout } from './ottu.js';
 
 const SESSION_COOKIE_NAME = 'admin_session';
 const SESSION_DURATION_MS = 8 * 60 * 60 * 1000;
@@ -1053,11 +1054,55 @@ async function handleApiSubscriberUpdate(request, env, phone, actor) {
   }
 }
 
+/**
+ * Two-tier delete:
+ *   - If subscriber has any `payments` row (real money flowed) → REFUSE
+ *     with 409 and tell admin to use "إلغاء الاشتراك" instead. Preserves
+ *     financial history for accounting / disputes / Kuwait tax.
+ *   - Otherwise (test, gift, abandoned signup) → cascade across all
+ *     per-phone tables. Best-effort cancel any pending Ottu intents in
+ *     the gateway first; tolerate Ottu errors (we already mark canceled
+ *     locally regardless).
+ */
 async function handleApiSubscriberDelete(env, phone) {
   try {
-    await env.DB.prepare('DELETE FROM subscribers WHERE phone = ?').bind(phone).run();
+    const paid = await env.DB.prepare(
+      `SELECT COUNT(*) AS c FROM payments WHERE phone = ?`
+    ).bind(phone).first();
+    if ((paid?.c || 0) > 0) {
+      return jsonResponse({
+        error: 'هذا المشترك لديه سجل دفعات. لا يمكن حذفه نهائياً — استخدم "إلغاء الاشتراك" للحفاظ على السجل المالي.',
+      }, 409);
+    }
+
+    // Best-effort: cancel any pending Ottu sessions before nuking the local row
+    const { results: pendingIntents } = await env.DB.prepare(
+      `SELECT session_id FROM payment_intents WHERE phone = ? AND state = 'pending'`
+    ).bind(phone).all();
+    for (const intent of (pendingIntents || [])) {
+      try {
+        await cancelCheckout(env, intent.session_id);
+      } catch (err) {
+        // Tolerate — the row's about to be deleted anyway. Log for visibility.
+        console.warn(`[delete] could not cancel Ottu intent ${intent.session_id}:`, err.message);
+      }
+    }
+
+    // Cascade across every per-phone table. broadcasts.id stays around as
+    // a historical summary; only per-recipient rows are removed.
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM payment_intents WHERE phone = ?').bind(phone),
+      env.DB.prepare('DELETE FROM consent_log WHERE phone = ?').bind(phone),
+      env.DB.prepare('DELETE FROM messages WHERE phone = ?').bind(phone),
+      env.DB.prepare('DELETE FROM subscription_events WHERE phone = ?').bind(phone),
+      env.DB.prepare('DELETE FROM broadcast_recipients WHERE phone = ?').bind(phone),
+      env.DB.prepare('DELETE FROM broadcast_failures WHERE phone = ?').bind(phone),
+      env.DB.prepare('DELETE FROM subscribers WHERE phone = ?').bind(phone),
+    ]);
+
     return jsonResponse({ success: true });
   } catch (err) {
+    console.error('[delete] cascade failed:', err);
     return jsonResponse({ error: err.message }, 500);
   }
 }
