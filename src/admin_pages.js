@@ -14,6 +14,9 @@ export const SHARED_CSS = `
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
     background: #f5f5f7; margin: 0; padding: 0; color: #1a1a1a;
+    /* Reserve room on the right (visual right in RTL) for the persistent
+       sidebar. Mobile media query below clears this. */
+    padding-inline-start: 240px;
   }
   a { color: #0066cc; text-decoration: none; }
   a:hover { text-decoration: underline; }
@@ -67,10 +70,11 @@ export const SHARED_CSS = `
     z-index: 90; display: none;
   }
 
-  /* Desktop layout: container leaves space for the persistent right sidebar */
-  .container { max-width: 900px; margin: 0 0 0 auto; padding: 30px 28px; padding-inline-end: 268px; }
+  /* Container centers within the body's remaining (non-sidebar) area. */
+  .container { max-width: 1100px; margin: 0 auto; padding: 30px 28px; }
 
   @media (max-width: 767px) {
+    body { padding-inline-start: 0; }
     .sidenav {
       transform: translateX(100%);
       transition: transform 0.2s ease-out;
@@ -78,7 +82,7 @@ export const SHARED_CSS = `
     .sidenav.open { transform: translateX(0); }
     .sidenav.open ~ .sidenav-backdrop { display: block; }
     .sidenav-toggle { display: flex; align-items: center; justify-content: center; }
-    .container { padding: 56px 16px 30px 16px; max-width: 100%; }
+    .container { padding: 56px 16px 30px 16px; }
   }
   h1 { margin: 0 0 8px; font-size: 24px; }
   h2 { margin: 0 0 16px; font-size: 18px; }
