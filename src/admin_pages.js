@@ -355,7 +355,7 @@ export function renderDashboardPage() {
 <div class="stats-grid">
   <div class="stat-card"><div class="stat-label">قيد الاشتراك</div><div class="stat-value" id="stat-inflight">—</div></div>
   <div class="stat-card"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
-  <div class="stat-card"><div class="stat-label">ملغون</div><div class="stat-value" id="stat-unsub">—</div></div>
+  <div class="stat-card"><div class="stat-label">ملغي</div><div class="stat-value" id="stat-unsub">—</div></div>
   <div class="stat-card"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
 </div>
 
@@ -410,11 +410,11 @@ export function renderDashboardPage() {
   background: white; padding: 14px 18px; border-radius: 10px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.04);
   text-decoration: none; color: inherit;
-  border-inline-start-width: 4px; border-inline-start-style: solid;
 }
 .alert-card:hover { background: #fafafa; text-decoration: none; }
-.alert-amber { border-inline-start-color: #f59e0b; }
-.alert-red   { border-inline-start-color: #dc2626; }
+/* alert-amber kept as a no-op marker class (in case we ever re-introduce
+   color-coding); currently no visual difference from a regular card. */
+.alert-red { border-inline-start: 4px solid #dc2626; }
 .alert-label { font-size: 12px; color: #777; }
 .alert-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
 
