@@ -555,14 +555,8 @@ a.stat-card.status-card:hover { filter: brightness(0.97); }
 .stat-card.plan-card .stat-value { color: white; }
 
 /* Funnel — distinct brand hues so each tells its own story */
-.stat-card.funnel-inflight { background: var(--tint-navy); }
-.stat-card.funnel-inflight .stat-value { color: var(--brand-navy); }
-.stat-card.funnel-new      { background: var(--tint-cyan); }
-.stat-card.funnel-new      .stat-value { color: var(--brand-blue); }
-.stat-card.funnel-unsub    { background: var(--tint-red); }
-.stat-card.funnel-unsub    .stat-value { color: var(--brand-red); }
-.stat-card.funnel-total    { background: var(--tint-cream); }
-.stat-card.funnel-total    .stat-value { color: #5b5b5b; }
+/* (funnel-card variants removed — those metrics now live inside
+   .status-card uniform styling in حالة الاشتراكات) */
 
 .alerts-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
