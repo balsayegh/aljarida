@@ -478,11 +478,11 @@ export function renderDashboardPage() {
 </div>
 
 <!-- Active by plan -->
-<h2 style="margin-top:28px; margin-bottom:12px">النشطون حسب نوع الاشتراك</h2>
+<h2 style="margin-top:28px; margin-bottom:12px">أنواع المشتركين المفعلين</h2>
 <div class="stats-grid">
-  <div class="stat-card plan-yearly"><div class="stat-label">مدفوع (سنوي)</div><div class="stat-value" id="stat-plan-yearly">—</div></div>
-  <div class="stat-card plan-pilot"><div class="stat-label">تجريبي</div><div class="stat-value" id="stat-plan-pilot">—</div></div>
-  <div class="stat-card plan-gift"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
+  <div class="stat-card plan-card"><div class="stat-label">مدفوع (سنوي)</div><div class="stat-value" id="stat-plan-yearly">—</div></div>
+  <div class="stat-card plan-card"><div class="stat-label">تجريبي</div><div class="stat-value" id="stat-plan-pilot">—</div></div>
+  <div class="stat-card plan-card"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
 </div>
 
 <!-- Funnel & growth -->
@@ -550,13 +550,10 @@ export function renderDashboardPage() {
 .stat-card.expiry-card .stat-label { color: var(--brand-navy); opacity: 0.75; }
 .stat-card.expiry-card .stat-value { color: var(--brand-navy); }
 
-/* Plan breakdown */
-.stat-card.plan-yearly { background: var(--tint-green); }
-.stat-card.plan-yearly .stat-value { color: var(--brand-green); }
-.stat-card.plan-pilot  { background: var(--tint-cyan); }
-.stat-card.plan-pilot  .stat-value { color: var(--brand-blue); }
-.stat-card.plan-gift   { background: var(--tint-magenta); }
-.stat-card.plan-gift   .stat-value { color: var(--brand-magenta); }
+/* Plan breakdown — uniform brand magenta background with white text */
+.stat-card.plan-card { background: var(--brand-magenta); }
+.stat-card.plan-card .stat-label { color: rgba(255,255,255,0.78); }
+.stat-card.plan-card .stat-value { color: white; }
 
 /* Funnel — distinct brand hues so each tells its own story */
 .stat-card.funnel-inflight { background: var(--tint-navy); }
