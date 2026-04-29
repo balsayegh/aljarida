@@ -662,7 +662,7 @@ async function handleApiDashboard(env) {
     monthRevenue, lastMonthRevenue, lastPayment,
     stuckPending, dlqCount, stalledCount,
     expiringTodayCount, expiringSoonCount, expiredCount,
-    revenueByDay, signupsByDay,
+    revenueCurrentMonth, revenueLastMonth,
   ] = await Promise.all([
     // Funnel + active-by-plan in a single subscribers scan
     env.DB.prepare(
@@ -734,26 +734,29 @@ async function handleApiDashboard(env) {
       `SELECT COUNT(*) AS c FROM subscribers WHERE state = 'paused'`
     ).first(),
 
-    // Daily series — last 30 days, grouped by Kuwait calendar day.
+    // Daily revenue series for the current Kuwait calendar month.
     // Kuwait is UTC+3 → shift the timestamp by +3h before formatting so
     // a payment at 23:00 UTC (= 02:00 Kuwait next day) buckets correctly.
     env.DB.prepare(
       `SELECT strftime('%Y-%m-%d', (payment_date / 1000) + 10800, 'unixepoch') AS day,
               COALESCE(SUM(amount_kwd - COALESCE(refunded_amount_kwd, 0)), 0) AS total
        FROM payments
-       WHERE payment_date >= ? AND (state IN ('paid','partially_refunded') OR state IS NULL)
+       WHERE payment_date >= ? AND payment_date < ?
+         AND (state IN ('paid','partially_refunded') OR state IS NULL)
        GROUP BY day
        ORDER BY day`
-    ).bind(last30DaysStart).all(),
+    ).bind(monthStartMs, now + DAY_MS).all(),
 
+    // Daily revenue series for the previous Kuwait calendar month.
     env.DB.prepare(
-      `SELECT strftime('%Y-%m-%d', (first_contact_at / 1000) + 10800, 'unixepoch') AS day,
-              COUNT(*) AS c
-       FROM subscribers
-       WHERE first_contact_at >= ?
+      `SELECT strftime('%Y-%m-%d', (payment_date / 1000) + 10800, 'unixepoch') AS day,
+              COALESCE(SUM(amount_kwd - COALESCE(refunded_amount_kwd, 0)), 0) AS total
+       FROM payments
+       WHERE payment_date >= ? AND payment_date <= ?
+         AND (state IN ('paid','partially_refunded') OR state IS NULL)
        GROUP BY day
        ORDER BY day`
-    ).bind(last30DaysStart).all(),
+    ).bind(lastMonthStart, lastMonthEnd).all(),
   ]);
 
   return jsonResponse({
@@ -800,8 +803,16 @@ async function handleApiDashboard(env) {
       gift:   funnelCounts?.active_gift   || 0,
     },
     series: {
-      revenue_30d: (revenueByDay?.results || []).map(r => ({ day: r.day, value: Number(r.total) })),
-      signups_30d: (signupsByDay?.results || []).map(r => ({ day: r.day, value: Number(r.c) })),
+      revenue_current_month: {
+        year: kp.year, month: kp.month,
+        days: (revenueCurrentMonth?.results || []).map(r => ({ day: r.day, value: Number(r.total) })),
+      },
+      revenue_last_month: {
+        // Last month's calendar coords — December wraps back to year-1
+        year:  kp.month === 1 ? kp.year - 1 : kp.year,
+        month: kp.month === 1 ? 12 : kp.month - 1,
+        days:  (revenueLastMonth?.results || []).map(r => ({ day: r.day, value: Number(r.total) })),
+      },
     },
   });
 }

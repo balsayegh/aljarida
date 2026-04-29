@@ -444,6 +444,19 @@ export function renderDashboardPage() {
   </a>
 </div>
 
+<!-- Revenue: current vs last month -->
+<h2 style="margin-top:28px; margin-bottom:12px">الإيرادات</h2>
+<div class="charts-grid">
+  <div class="chart-card">
+    <div class="chart-title">الشهر الجاري</div>
+    <div class="chart-host" id="chart-revenue-current"></div>
+  </div>
+  <div class="chart-card">
+    <div class="chart-title">الشهر الماضي</div>
+    <div class="chart-host" id="chart-revenue-last"></div>
+  </div>
+</div>
+
 <!-- Subscription expiry status -->
 <h2 style="margin-top:28px; margin-bottom:12px">حالة الاشتراكات</h2>
 <div class="stats-grid">
@@ -492,19 +505,6 @@ export function renderDashboardPage() {
   <div class="stat-card funnel-new"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
   <div class="stat-card funnel-unsub"><div class="stat-label">ملغي</div><div class="stat-value" id="stat-unsub">—</div></div>
   <div class="stat-card funnel-total"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
-</div>
-
-<!-- Charts -->
-<h2 style="margin-top:28px; margin-bottom:12px">آخر 30 يوماً</h2>
-<div class="charts-grid">
-  <div class="chart-card">
-    <div class="chart-title">الإيرادات اليومية (د.ك)</div>
-    <div class="chart-host" id="chart-revenue"></div>
-  </div>
-  <div class="chart-card">
-    <div class="chart-title">المشتركون الجدد يومياً</div>
-    <div class="chart-host" id="chart-signups"></div>
-  </div>
 </div>
 
 <!-- Activity feed -->
@@ -626,18 +626,14 @@ function escapeHtml(s) {
 }
 
 // --- Bar chart (inline SVG, no library) -------------------------------------
-// Pad data to N days (last 30 by default), inserting 0 for missing days.
-function padDailySeries(rawData, days = 30) {
+// Pad data to every day of the given Kuwait calendar month, inserting 0 for
+// missing days. Year/month are 1-based as returned from the dashboard API.
+function padMonthSeries(rawData, year, month) {
   const map = Object.fromEntries((rawData || []).map(p => [p.day, Number(p.value) || 0]));
   const out = [];
-  const today = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - i);
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    const key = yyyy + '-' + mm + '-' + dd;
+  const lastDay = new Date(year, month, 0).getDate();  // last day of given month
+  for (let day = 1; day <= lastDay; day++) {
+    const key = year + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
     out.push({ day: key, value: map[key] || 0 });
   }
   return out;
@@ -656,7 +652,8 @@ function renderBarChart(host, data, opts) {
     const h = max > 0 ? (d.value / max) * innerH : 0;
     const x = pad.l + i * (innerW / data.length) + gap / 2;
     const y = pad.t + innerH - h;
-    const fill = d.value > 0 ? 'var(--brand-blue)' : '#e5e5e7';
+    // Hardcoded hex — SVG presentation attributes don't reliably resolve CSS vars
+    const fill = d.value > 0 ? '#1c78be' : '#e5e5e7';
     const tooltip = d.day + ': ' + fmt(d.value);
     bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" fill="' + fill + '" rx="1"><title>' + tooltip + '</title></rect>';
   });
@@ -809,17 +806,21 @@ async function loadDashboard() {
     document.getElementById('stat-unsub').textContent    = f.unsubscribed || 0;
     document.getElementById('stat-total').textContent    = f.total || 0;
 
-    // Charts
-    renderBarChart(
-      document.getElementById('chart-revenue'),
-      padDailySeries(s.revenue_30d),
-      { format: v => v.toFixed(0) },
-    );
-    renderBarChart(
-      document.getElementById('chart-signups'),
-      padDailySeries(s.signups_30d),
-      { format: v => v.toString() },
-    );
+    // Charts: current vs last month, daily revenue
+    if (s.revenue_current_month) {
+      renderBarChart(
+        document.getElementById('chart-revenue-current'),
+        padMonthSeries(s.revenue_current_month.days, s.revenue_current_month.year, s.revenue_current_month.month),
+        { format: v => v.toFixed(0) },
+      );
+    }
+    if (s.revenue_last_month) {
+      renderBarChart(
+        document.getElementById('chart-revenue-last'),
+        padMonthSeries(s.revenue_last_month.days, s.revenue_last_month.year, s.revenue_last_month.month),
+        { format: v => v.toFixed(0) },
+      );
+    }
   } catch (err) { console.error('dashboard load failed', err); }
 }
 
