@@ -245,7 +245,7 @@ export async function handlePaymentSuccess(request, env) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>تم الدفع بنجاح — جريدة الجريدة الرقمية</title>
+<title>تم الدفع بنجاح — جريدة الجريدة - النسخة الرقمية</title>
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background: #f8f8f5; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .card { max-width: 460px; background: white; border-radius: 16px; padding: 40px 28px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
@@ -259,7 +259,7 @@ export async function handlePaymentSuccess(request, env) {
   <div class="card">
     <div class="check">✓</div>
     <h1>تم الدفع بنجاح</h1>
-    <p>تم تفعيل اشتراكك السنوي في جريدة الجريدة الرقمية.</p>
+    <p>تم تفعيل اشتراكك السنوي في جريدة الجريدة - النسخة الرقمية.</p>
     <p>سيصلك أول عدد على واتساب صباح الغد.</p>
     <p><small>يمكنك إغلاق هذه الصفحة.</small></p>
   </div>

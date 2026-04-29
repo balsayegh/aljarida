@@ -18,29 +18,68 @@ export const SHARED_CSS = `
   a { color: #0066cc; text-decoration: none; }
   a:hover { text-decoration: underline; }
 
-  .topnav {
-    background: white; padding: 0 30px;
-    border-bottom: 1px solid #e5e5e7;
-    display: flex; justify-content: space-between; align-items: center;
-    position: sticky; top: 0; z-index: 100;
+  /* Right-side panel menu (RTL — visually anchored to the right edge) */
+  .sidenav {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 240px; background: white;
+    border-inline-start: 1px solid #e5e5e7;
+    display: flex; flex-direction: column;
+    z-index: 100; overflow-y: auto;
   }
-  .topnav-brand { font-size: 18px; font-weight: 600; padding: 16px 0; }
-  .topnav-links { display: flex; gap: 4px; }
-  .topnav-links a {
-    padding: 16px 18px; color: #555; font-size: 14px;
-    border-bottom: 3px solid transparent;
-    margin-bottom: -1px;
+  .sidenav-brand {
+    padding: 20px 22px; font-size: 16px; font-weight: 600;
+    border-bottom: 1px solid #e5e5e7; line-height: 1.3;
   }
-  .topnav-links a:hover { color: #0066cc; text-decoration: none; }
-  .topnav-links a.active { color: #0066cc; border-bottom-color: #0066cc; font-weight: 500; }
-  .topnav-actions { display: flex; gap: 8px; align-items: center; }
-  .topnav-actions button {
-    background: none; border: none; color: #666; cursor: pointer; font-size: 14px;
-    padding: 6px 12px;
+  .sidenav-links { display: flex; flex-direction: column; padding: 12px 0; flex: 1; }
+  .sidenav-links a {
+    padding: 12px 22px; color: #444; font-size: 14px;
+    border-inline-start: 3px solid transparent;
+    text-decoration: none;
   }
-  .topnav-actions button:hover { color: #0066cc; }
+  .sidenav-links a:hover { background: #f5f5f7; color: #0066cc; text-decoration: none; }
+  .sidenav-links a.active {
+    color: #0066cc; border-inline-start-color: #0066cc;
+    background: #f0f7ff; font-weight: 500;
+  }
+  .sidenav-footer {
+    padding: 14px 22px; border-top: 1px solid #e5e5e7;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .sidenav-footer .admin-label {
+    font-size: 12px; color: #777; line-height: 1.4;
+  }
+  .sidenav-footer button {
+    background: none; border: 1px solid #d1d1d6; color: #444;
+    padding: 8px 14px; border-radius: 6px; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+  }
+  .sidenav-footer button:hover { border-color: #0066cc; color: #0066cc; }
 
-  .container { max-width: 1100px; margin: 0 auto; padding: 30px 20px; }
+  /* Mobile hamburger button — fixed in the top-right; appears only on small screens */
+  .sidenav-toggle {
+    position: fixed; top: 14px; right: 14px; z-index: 110;
+    background: white; border: 1px solid #e5e5e7; border-radius: 8px;
+    width: 40px; height: 40px; display: none;
+    cursor: pointer; font-size: 20px; padding: 0;
+  }
+  .sidenav-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    z-index: 90; display: none;
+  }
+
+  /* Desktop layout: container leaves space for the persistent right sidebar */
+  .container { max-width: 900px; margin: 0 0 0 auto; padding: 30px 28px; padding-inline-end: 268px; }
+
+  @media (max-width: 767px) {
+    .sidenav {
+      transform: translateX(100%);
+      transition: transform 0.2s ease-out;
+    }
+    .sidenav.open { transform: translateX(0); }
+    .sidenav.open ~ .sidenav-backdrop { display: block; }
+    .sidenav-toggle { display: flex; align-items: center; justify-content: center; }
+    .container { padding: 56px 16px 30px 16px; max-width: 100%; }
+  }
   h1 { margin: 0 0 8px; font-size: 24px; }
   h2 { margin: 0 0 16px; font-size: 18px; }
   .subtitle { color: #666; margin: 0 0 24px; font-size: 14px; }
@@ -216,14 +255,15 @@ export function pageShell(title, activePage, bodyHtml) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title} — جريدة الجريدة الرقمية</title>
+<title>${title} — جريدة الجريدة - النسخة الرقمية</title>
 <style>${SHARED_CSS}</style>
 </head>
 <body>
 
-<nav class="topnav">
-  <div class="topnav-brand">جريدة الجريدة الرقمية</div>
-  <div class="topnav-links">
+<button type="button" class="sidenav-toggle" id="sidenavToggle" aria-label="Open menu">☰</button>
+<nav class="sidenav" id="sidenav">
+  <div class="sidenav-brand">جريدة الجريدة<br><span style="color:#666;font-weight:500;font-size:14px">النسخة الرقمية</span></div>
+  <div class="sidenav-links">
     <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
     <a href="/admin/publish" class="${activePage === 'publish' ? 'active' : ''}" data-roles="supervisor,publisher">إرسال العدد</a>
     <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}" data-roles="supervisor,billing">المشتركون</a>
@@ -232,32 +272,44 @@ export function pageShell(title, activePage, bodyHtml) {
     <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}" data-roles="supervisor,publisher">التنبيهات</a>
     <a href="/admin/admins" class="${activePage === 'admins' ? 'active' : ''}" data-roles="supervisor">المستخدمون</a>
   </div>
-  <div class="topnav-actions">
-    <span id="navAdminLabel" class="muted" style="font-size:13px"></span>
+  <div class="sidenav-footer">
+    <span id="navAdminLabel" class="admin-label"></span>
     <form method="POST" action="/admin/logout" style="margin:0">
-      <button type="submit">تسجيل الخروج</button>
+      <button type="submit" style="width:100%">تسجيل الخروج</button>
     </form>
   </div>
 </nav>
+<div class="sidenav-backdrop" id="sidenavBackdrop"></div>
 <script>
-// Hide nav links the current admin's role isn't allowed to see.
-// data-roles="" or absent = visible to everyone (e.g. dashboard, broadcasts).
+// Hide menu items the current admin's role isn't allowed to see.
 (async () => {
   try {
     const r = await fetch('/admin/api/me');
     if (!r.ok) return;
     const { admin } = await r.json();
     if (!admin) return;
-    // Hide any element with data-roles="..." that doesn't include the current role.
-    // Used for nav links, hero cards, quick-links footer, etc.
     document.querySelectorAll('[data-roles]').forEach(el => {
       const roles = el.dataset.roles.split(',').map(s => s.trim()).filter(Boolean);
       if (!roles.includes(admin.role)) el.style.display = 'none';
     });
     const label = document.getElementById('navAdminLabel');
     const roleAr = { supervisor: 'مشرف', billing: 'محاسب', publisher: 'ناشر' }[admin.role] || admin.role;
-    if (label) label.textContent = (admin.display_name || admin.email) + ' • ' + roleAr;
+    if (label) label.textContent = (admin.display_name || admin.email) + ' — ' + roleAr;
   } catch {}
+})();
+
+// Mobile hamburger
+(() => {
+  const nav = document.getElementById('sidenav');
+  const toggle = document.getElementById('sidenavToggle');
+  const backdrop = document.getElementById('sidenavBackdrop');
+  if (!nav || !toggle) return;
+  function open() { nav.classList.add('open'); }
+  function close() { nav.classList.remove('open'); }
+  toggle.addEventListener('click', open);
+  backdrop.addEventListener('click', close);
+  // Close after tapping any nav link (mobile UX)
+  nav.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
 })();
 </script>
 
@@ -279,7 +331,7 @@ export function renderLoginPage(errorMessage = null) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>تسجيل الدخول — جريدة الجريدة الرقمية</title>
+<title>تسجيل الدخول — جريدة الجريدة - النسخة الرقمية</title>
 <style>${SHARED_CSS}
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
   .login-card { background: white; padding: 40px; border-radius: 12px; max-width: 400px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
@@ -289,7 +341,7 @@ export function renderLoginPage(errorMessage = null) {
 </head>
 <body>
 <div class="login-card">
-  <h1>جريدة الجريدة الرقمية</h1>
+  <h1>جريدة الجريدة - النسخة الرقمية</h1>
   <p class="subtitle">لوحة التحكم — تسجيل الدخول</p>
   ${errorMessage ? `<div class="alert alert-error">${errorMessage}</div>` : ''}
   <form method="POST" action="/admin/login">

@@ -1,6 +1,6 @@
 /**
  * Arabic message templates for free-form replies (inside 24-hour CSW).
- * Brand: جريدة الجريدة الرقمية / AlJarida Digital
+ * Brand: جريدة الجريدة - النسخة الرقمية / AlJarida Digital
  */
 
 export const messages = {

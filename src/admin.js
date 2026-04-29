@@ -28,7 +28,7 @@ import {
   getSubscriberDetail, extendSubscriptionAction, changePhoneAction,
   addTagAction, removeTagAction, changePlanAction, addPaymentAction,
   getEvents, getPayments, sendPaymentLinkAction, cancelPaymentIntentAction,
-  refundPaymentAction,
+  refundPaymentAction, resendLastEditionAction,
 } from './admin_api_v2.js';
 import {
   hashPassword, verifyPassword,
@@ -244,6 +244,15 @@ async function dispatch(request, env, ctx, url, admin) {
     const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
     if (denied) return denied;
     return sendPaymentLinkAction(request, env, apiSendLinkMatch[1], admin);
+  }
+
+  // Re-send the most recent broadcast PDF to a single subscriber (support tool).
+  // Allowed for billing (handles support tickets) and supervisor.
+  const apiResendMatch = path.match(/^\/admin\/api\/subscribers\/(\d+)\/resend-last-edition$/);
+  if (apiResendMatch && method === 'POST') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_BILLING]);
+    if (denied) return denied;
+    return resendLastEditionAction(request, env, apiResendMatch[1], admin);
   }
 
   // Cancel an Ottu payment intent. session_id is hex (40 chars typically),

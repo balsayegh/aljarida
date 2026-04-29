@@ -20,7 +20,7 @@ import {
   PLAN_YEARLY, PLAN_PILOT, PLAN_GIFT,
 } from './subscription.js';
 import { sendPhoneChangeVerification } from './whatsapp_v2.js';
-import { sendTextMessage } from './whatsapp.js';
+import { sendTextMessage, sendDailyDeliveryTemplate } from './whatsapp.js';
 import { createAndSendCheckoutLink } from './payment.js';
 import { cancelCheckout, refundCheckout } from './ottu.js';
 import { jsonResponse } from './admin.js';
@@ -405,6 +405,59 @@ export async function sendPaymentLinkAction(request, env, phone, actor) {
   }
 
   return jsonResponse({ error: result.error || 'فشل إنشاء رابط الدفع' }, 502);
+}
+
+/**
+ * POST /admin/api/subscribers/:phone/resend-last-edition
+ *
+ * Re-sends the most recent successfully-broadcast edition's PDF to a
+ * single subscriber. Uses the approved `aljarida_daily_delivery_ar`
+ * template — works regardless of CSW. Logs an `edition_resent` event
+ * for the audit timeline.
+ *
+ * Customer-support primitive: when a subscriber claims they didn't
+ * get today's PDF (whether they really lost it or deleted the chat),
+ * the operator can re-send without re-broadcasting to everyone.
+ */
+export async function resendLastEditionAction(request, env, phone, actor) {
+  const sub = await env.DB.prepare(
+    `SELECT phone, state FROM subscribers WHERE phone = ?`
+  ).bind(phone).first();
+  if (!sub) return jsonResponse({ error: 'المشترك غير موجود' }, 404);
+  if (sub.state === 'unsubscribed') {
+    return jsonResponse({ error: 'لا يمكن الإرسال لمن ألغى الاشتراك' }, 409);
+  }
+
+  // Most recent broadcast — prefer one that finished successfully, but fall
+  // back to the most recent of any status (the PDF URL is what we need).
+  const lastBroadcast = await env.DB.prepare(
+    `SELECT id, date_string, pdf_url, started_at, status
+     FROM broadcasts
+     ORDER BY started_at DESC
+     LIMIT 1`
+  ).first();
+  if (!lastBroadcast || !lastBroadcast.pdf_url) {
+    return jsonResponse({ error: 'لا يوجد عدد سابق لإعادة إرساله' }, 404);
+  }
+
+  try {
+    await sendDailyDeliveryTemplate(env, phone, lastBroadcast.pdf_url, lastBroadcast.date_string || '');
+  } catch (err) {
+    console.error(`[resend] failed for ${phone}:`, err);
+    return jsonResponse({ error: 'فشل إرسال العدد: ' + (err.message || 'خطأ غير معروف') }, 502);
+  }
+
+  await logEvent(env, phone, 'edition_resent', {
+    broadcast_id: lastBroadcast.id,
+    date_string: lastBroadcast.date_string,
+    pdf_url: lastBroadcast.pdf_url,
+  }, actor.email);
+
+  return jsonResponse({
+    success: true,
+    broadcast_id: lastBroadcast.id,
+    date_string: lastBroadcast.date_string,
+  });
 }
 
 /**

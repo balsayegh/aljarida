@@ -345,6 +345,7 @@ function render(d) {
   html += '<button class="primary small" onclick="openModal(\\'paymentModal\\')">إضافة دفعة</button>';
   if (sub.state !== 'unsubscribed') {
     html += '<button class="secondary small" onclick="doSendPaymentLink()">إرسال رابط دفع</button>';
+    html += '<button class="secondary small" onclick="doResendLastEdition()">إعادة إرسال آخر عدد</button>';
   }
   html += '<button class="secondary small" onclick="openPhoneChange()">تغيير الرقم</button>';
   html += '<button class="secondary small" onclick="openModal(\\'planModal\\'); document.getElementById(\\'planSelect\\').value = \\''+ (sub.subscription_plan || 'yearly') +'\\';">تغيير الخطة</button>';
@@ -753,6 +754,18 @@ async function doCancelIntent(sessionId) {
   alert(d.error || 'فشل الإلغاء');
 }
 
+async function doResendLastEdition() {
+  if (!confirm('إعادة إرسال آخر عدد إلى هذا المشترك؟ سيستخدم قالب التسليم اليومي.')) return;
+  const r = await fetch('/admin/api/subscribers/' + phone + '/resend-last-edition', { method: 'POST' });
+  const d = await r.json();
+  if (d.success) {
+    alert('تم الإرسال — العدد: ' + (d.date_string || '—'));
+    loadDetail();
+    return;
+  }
+  alert(d.error || 'فشل إعادة الإرسال');
+}
+
 async function doSendPaymentLink() {
   if (!confirm('سيتم إنشاء رابط دفع جديد عبر Ottu وإرساله للمشترك على واتساب. هل تريد المتابعة؟')) return;
   const r = await fetch('/admin/api/subscribers/' + phone + '/send-payment-link', {
@@ -823,6 +836,7 @@ function eventText(type, details) {
     payment_link_sent: 'تم إرسال رابط دفع جديد (Ottu)',
     payment_link_send_failed: 'فشل إرسال رابط الدفع — ' + (details.reason === 'whatsapp_send_failed' ? 'تعذّر التوصيل عبر واتساب' : details.reason === 'csw_closed_no_template' ? 'العميل خارج نافذة 24 ساعة' : 'خطأ'),
     payment_link_canceled: 'تم إلغاء رابط الدفع',
+    edition_resent: 'إعادة إرسال آخر عدد' + (details.date_string ? ' (' + escHtml(details.date_string) + ')' : ''),
     payment_refunded: 'تم استرداد ' + (details.amount_kwd || 0) + ' د.ك' + (details.is_full ? ' (كامل)' : ' (جزئي)') + (details.reason ? ' — ' + escHtml(details.reason) : ''),
     renewal_interest: 'طلب تجديد الاشتراك' + (details.success ? '' : ' (فشل إرسال الرابط)'),
     plan_changed: 'تم تغيير الخطة من ' + (details.old_plan || '—') + ' إلى ' + (details.new_plan || '—'),
