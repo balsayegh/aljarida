@@ -514,28 +514,22 @@ export function renderDashboardPage() {
   gap: 16px; margin-bottom: 16px;
 }
 .hero-card {
-  background: white; padding: 24px; border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-  text-decoration: none; color: inherit;
-  border-top: 4px solid #d1d1d6;
+  background: var(--brand-navy);
+  color: white;
+  padding: 24px; border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(8, 83, 146, 0.18);
+  text-decoration: none;
 }
 .hero-card.hero-link { cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
-.hero-card.hero-link:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-decoration: none; }
-.hero-label { font-size: 13px; color: #666; margin-bottom: 8px; }
-.hero-value { font-size: 32px; font-weight: 700; color: #111; line-height: 1.1; }
-.hero-sub { font-size: 13px; margin-top: 6px; }
-
-/* Drop the default neutral border on hero cards — colored cards
-   below provide their own background; uncolored ones revert to plain. */
-.hero-card { border-top: none; }
-
-/* Hero KPIs — brand palette */
-.hero-card.kpi-active    { background: var(--tint-green); }
-.hero-card.kpi-active    .hero-value { color: var(--brand-green); }
-.hero-card.kpi-revenue   { background: var(--tint-magenta); }
-.hero-card.kpi-revenue   .hero-value { color: var(--brand-magenta); }
-.hero-card.kpi-broadcast { background: var(--tint-blue); }
-.hero-card.kpi-broadcast .hero-value { color: var(--brand-blue); }
+.hero-card.hero-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(8, 83, 146, 0.28);
+  text-decoration: none;
+}
+.hero-label { font-size: 13px; color: rgba(255,255,255,0.75); margin-bottom: 8px; }
+.hero-value { font-size: 32px; font-weight: 700; color: white; line-height: 1.1; }
+.hero-sub { font-size: 13px; margin-top: 6px; color: rgba(255,255,255,0.7); }
+.hero-card .muted { color: rgba(255,255,255,0.65); }
 
 /* Plan breakdown */
 .stat-card.plan-yearly { background: var(--tint-green); }
