@@ -37,6 +37,26 @@ export const ALJARIDA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBo
  */
 
 export const SHARED_CSS = `
+  /* AlJarida brand palette */
+  :root {
+    --brand-navy:    #085392;
+    --brand-blue:    #1c78be;
+    --brand-cyan:    #6fccf4;
+    --brand-cream:   #e8e6da;
+    --brand-magenta: #a3238e;
+    --brand-green:   #439752;
+    --brand-red:     #ed1940;
+
+    /* Light tints for card backgrounds (≈ 8-12% of base) */
+    --tint-navy:    #eaf0f6;
+    --tint-blue:    #eaf4fc;
+    --tint-cyan:    #eef9fd;
+    --tint-cream:   #f8f6ee;
+    --tint-magenta: #f8eaf4;
+    --tint-green:   #ecf7ed;
+    --tint-red:     #fdeaee;
+  }
+
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, Arial, sans-serif;
@@ -45,7 +65,7 @@ export const SHARED_CSS = `
        sidebar. Mobile media query below clears this. */
     padding-inline-start: 240px;
   }
-  a { color: #0066cc; text-decoration: none; }
+  a { color: var(--brand-blue); text-decoration: none; }
   a:hover { text-decoration: underline; }
 
   /* Right-side panel menu (RTL — visually anchored to the right edge) */
@@ -72,9 +92,9 @@ export const SHARED_CSS = `
     border-inline-start: 3px solid transparent;
     text-decoration: none;
   }
-  .sidenav-links a:hover { background: #f5f5f7; color: #0066cc; text-decoration: none; }
+  .sidenav-links a:hover { background: #f5f5f7; color: var(--brand-blue); text-decoration: none; }
   .sidenav-links a.active {
-    color: #0066cc; border-inline-start-color: #0066cc;
+    color: var(--brand-blue); border-inline-start-color: var(--brand-blue);
     background: #f0f7ff; font-weight: 500;
   }
   .sidenav-footer {
@@ -89,7 +109,7 @@ export const SHARED_CSS = `
     padding: 8px 14px; border-radius: 6px; font-size: 13px;
     cursor: pointer; font-family: inherit;
   }
-  .sidenav-footer button:hover { border-color: #0066cc; color: #0066cc; }
+  .sidenav-footer button:hover { border-color: var(--brand-blue); color: var(--brand-blue); }
 
   /* Mobile hamburger button — fixed in the top-right; appears only on small screens */
   .sidenav-toggle {
@@ -155,27 +175,27 @@ export const SHARED_CSS = `
     background: white; font-family: inherit;
   }
   input:focus, select:focus, textarea:focus {
-    outline: none; border-color: #0066cc;
+    outline: none; border-color: var(--brand-blue);
     box-shadow: 0 0 0 3px rgba(0,102,204,0.1);
   }
   input[dir="ltr"] { direction: ltr; text-align: left; }
   input[type="url"] { direction: ltr; text-align: left; font-family: 'SF Mono', Monaco, monospace; font-size: 13px; }
 
   button.primary {
-    background: #0066cc; color: white; border: none; padding: 11px 22px;
+    background: var(--brand-blue); color: white; border: none; padding: 11px 22px;
     font-size: 14px; border-radius: 8px; cursor: pointer; font-weight: 600;
   }
-  button.primary:hover { background: #0052a3; }
+  button.primary:hover { background: var(--brand-navy); }
   button.primary:disabled { background: #999; cursor: not-allowed; }
 
   button.secondary {
     background: white; color: #333; border: 1px solid #d1d1d6;
     padding: 9px 18px; font-size: 14px; border-radius: 8px; cursor: pointer;
   }
-  button.secondary:hover { border-color: #0066cc; color: #0066cc; }
+  button.secondary:hover { border-color: var(--brand-blue); color: var(--brand-blue); }
 
   button.link-btn {
-    background: none; border: none; color: #0066cc; cursor: pointer;
+    background: none; border: none; color: var(--brand-blue); cursor: pointer;
     font-size: 13px; padding: 4px 8px; font-family: inherit;
   }
   button.link-btn:hover { text-decoration: underline; }
@@ -225,9 +245,9 @@ export const SHARED_CSS = `
   /* Clickable subscriber rows */
   .sub-row { cursor: pointer; transition: background 0.1s; }
   .sub-row:hover { background: #eef5fc !important; }
-  .phone-link { color: #0066cc; text-decoration: none; font-weight: 500; }
+  .phone-link { color: var(--brand-blue); text-decoration: none; font-weight: 500; }
   .phone-link:hover { text-decoration: underline; }
-  .view-link { color: #0066cc; font-size: 13px; white-space: nowrap; text-decoration: none; font-weight: 500; }
+  .view-link { color: var(--brand-blue); font-size: 13px; white-space: nowrap; text-decoration: none; font-weight: 500; }
   .view-link:hover { text-decoration: underline; }
   .actions-cell { white-space: nowrap; }
 
@@ -244,7 +264,7 @@ export const SHARED_CSS = `
     margin-top: 8px; overflow: hidden;
   }
   .progress-fill {
-    height: 100%; background: #0066cc; width: 0; transition: width 0.3s;
+    height: 100%; background: var(--brand-blue); width: 0; transition: width 0.3s;
   }
 
   .code, .url-display {
@@ -509,31 +529,31 @@ export function renderDashboardPage() {
    below provide their own background; uncolored ones revert to plain. */
 .hero-card { border-top: none; }
 
-/* Hero category — light tinted background + saturated value text */
-.hero-card.kpi-active    { background: #ecfdf5; }
-.hero-card.kpi-active    .hero-value { color: #047857; }
-.hero-card.kpi-revenue   { background: #fffbeb; }
-.hero-card.kpi-revenue   .hero-value { color: #b45309; }
-.hero-card.kpi-broadcast { background: #eff6ff; }
-.hero-card.kpi-broadcast .hero-value { color: #0066cc; }
+/* Hero KPIs — brand palette */
+.hero-card.kpi-active    { background: var(--tint-green); }
+.hero-card.kpi-active    .hero-value { color: var(--brand-green); }
+.hero-card.kpi-revenue   { background: var(--tint-magenta); }
+.hero-card.kpi-revenue   .hero-value { color: var(--brand-magenta); }
+.hero-card.kpi-broadcast { background: var(--tint-blue); }
+.hero-card.kpi-broadcast .hero-value { color: var(--brand-blue); }
 
-/* Plan-breakdown — same emerald for yearly (positive/paying), differentiated hues for free types */
-.stat-card.plan-yearly { background: #ecfdf5; }
-.stat-card.plan-yearly .stat-value { color: #047857; }
-.stat-card.plan-pilot  { background: #ecfeff; }
-.stat-card.plan-pilot  .stat-value { color: #0e7490; }
-.stat-card.plan-gift   { background: #fdf2f8; }
-.stat-card.plan-gift   .stat-value { color: #be185d; }
+/* Plan breakdown */
+.stat-card.plan-yearly { background: var(--tint-green); }
+.stat-card.plan-yearly .stat-value { color: var(--brand-green); }
+.stat-card.plan-pilot  { background: var(--tint-cyan); }
+.stat-card.plan-pilot  .stat-value { color: var(--brand-blue); }
+.stat-card.plan-gift   { background: var(--tint-magenta); }
+.stat-card.plan-gift   .stat-value { color: var(--brand-magenta); }
 
-/* Funnel cards — distinct hues so each is visually a different "story" */
-.stat-card.funnel-inflight { background: #faf5ff; }
-.stat-card.funnel-inflight .stat-value { color: #7e22ce; }
-.stat-card.funnel-new      { background: #f0fdfa; }
-.stat-card.funnel-new      .stat-value { color: #0f766e; }
-.stat-card.funnel-unsub    { background: #fff1f2; }
-.stat-card.funnel-unsub    .stat-value { color: #be123c; }
-.stat-card.funnel-total    { background: #f8fafc; }
-.stat-card.funnel-total    .stat-value { color: #334155; }
+/* Funnel — distinct brand hues so each tells its own story */
+.stat-card.funnel-inflight { background: var(--tint-navy); }
+.stat-card.funnel-inflight .stat-value { color: var(--brand-navy); }
+.stat-card.funnel-new      { background: var(--tint-cyan); }
+.stat-card.funnel-new      .stat-value { color: var(--brand-blue); }
+.stat-card.funnel-unsub    { background: var(--tint-red); }
+.stat-card.funnel-unsub    .stat-value { color: var(--brand-red); }
+.stat-card.funnel-total    { background: var(--tint-cream); }
+.stat-card.funnel-total    .stat-value { color: #5b5b5b; }
 
 .alerts-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -547,7 +567,7 @@ export function renderDashboardPage() {
 .alert-card:hover { background: #fafafa; text-decoration: none; }
 /* alert-amber kept as a no-op marker class (in case we ever re-introduce
    color-coding); currently no visual difference from a regular card. */
-.alert-red { border-inline-start: 4px solid #dc2626; }
+.alert-red { border-inline-start: 4px solid var(--brand-red); }
 .alert-label { font-size: 12px; color: #777; }
 .alert-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
 
@@ -568,7 +588,7 @@ export function renderDashboardPage() {
 .activity-body { flex: 1; min-width: 0; }
 .activity-line1 { font-size: 14px; color: #1a1a1a; }
 .activity-line2 { font-size: 12px; color: #777; margin-top: 2px; }
-.activity-line2 a { color: #0066cc; }
+.activity-line2 a { color: var(--brand-blue); }
 .activity-time { font-size: 12px; color: #999; flex-shrink: 0; }
 
 .quick-links {
@@ -626,7 +646,7 @@ function renderBarChart(host, data, opts) {
     const h = max > 0 ? (d.value / max) * innerH : 0;
     const x = pad.l + i * (innerW / data.length) + gap / 2;
     const y = pad.t + innerH - h;
-    const fill = d.value > 0 ? '#0066cc' : '#e5e5e7';
+    const fill = d.value > 0 ? 'var(--brand-blue)' : '#e5e5e7';
     const tooltip = d.day + ': ' + fmt(d.value);
     bars += '<rect x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + barW.toFixed(1) + '" height="' + Math.max(1, h).toFixed(1) + '" fill="' + fill + '" rx="1"><title>' + tooltip + '</title></rect>';
   });
@@ -1211,7 +1231,7 @@ function renderPaymentCell(s) {
   let hint = '';
   if (s.subscription_end_at) {
     const daysLeft = Math.floor((s.subscription_end_at - Date.now()) / 86400000);
-    if (daysLeft < 0)         hint = ' <span title="منتهي" style="color:#dc2626">●</span>';
+    if (daysLeft < 0)         hint = ' <span title="منتهي" style="color:var(--brand-red)">●</span>';
     else if (daysLeft <= 14)  hint = ' <span title="ينتهي قريباً" style="color:#f59e0b">●</span>';
   }
   return '<div><strong>' + amount + '</strong>' + hint + '</div>' +

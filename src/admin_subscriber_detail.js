@@ -228,7 +228,7 @@ export function renderSubscriberDetailPage(phone) {
 .stat-box.warning { border-right: 4px solid #ff9800; }
 .stat-box.critical { border-right: 4px solid #f44336; }
 .stat-box.expired { border-right: 4px solid #c62828; background: #ffebee; }
-.stat-box.pilot { border-right: 4px solid #0066cc; background: #f0f7ff; }
+.stat-box.pilot { border-right: 4px solid var(--brand-blue); background: var(--tint-blue); }
 
 .actions-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; background: white; padding: 16px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
 

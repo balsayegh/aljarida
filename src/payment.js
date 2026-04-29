@@ -249,7 +249,7 @@ export async function handlePaymentSuccess(request, env) {
 <style>
   body { font-family: -apple-system, system-ui, sans-serif; background: #f8f8f5; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .card { max-width: 460px; background: white; border-radius: 16px; padding: 40px 28px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.05); }
-  .check { width: 64px; height: 64px; border-radius: 50%; background: #10b981; color: white; font-size: 36px; line-height: 64px; margin: 0 auto 20px; }
+  .check { width: 64px; height: 64px; border-radius: 50%; background: #439752; color: white; font-size: 36px; line-height: 64px; margin: 0 auto 20px; }
   h1 { font-size: 22px; margin: 0 0 12px; color: #111; }
   p  { font-size: 16px; line-height: 1.7; color: #444; margin: 0 0 8px; }
   small { color: #888; }
