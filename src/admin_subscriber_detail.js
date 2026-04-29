@@ -155,6 +155,19 @@ export function renderSubscriberDetailPage(phone) {
   </div>
 </div>
 
+<div class="modal" id="nameModal" style="display:none">
+  <div class="modal-backdrop" onclick="closeModal('nameModal')"></div>
+  <div class="modal-content">
+    <h2>تعديل اسم المشترك</h2>
+    <label>الاسم (اتركه فارغاً للحذف)</label>
+    <input type="text" id="nameInput" placeholder="أحمد السالم">
+    <div class="modal-actions">
+      <button class="secondary" onclick="closeModal('nameModal')">إلغاء</button>
+      <button class="primary" onclick="doSaveName()">حفظ</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="noteModal" style="display:none">
   <div class="modal-backdrop" onclick="closeModal('noteModal')"></div>
   <div class="modal-content">
@@ -267,7 +280,17 @@ function render(d) {
   // Header
   let html = '<div class="detail-header">';
   html += '<div class="detail-title">' + escHtml(sub.phone) + '</div>';
-  if (sub.profile_name) html += '<div class="detail-name">' + escHtml(sub.profile_name) + '</div>';
+  // Name with inline edit affordance — both shown vs missing states get a button.
+  if (sub.profile_name) {
+    html += '<div class="detail-name">' + escHtml(sub.profile_name) +
+            ' <button class="link-btn" onclick="openEditName()" style="font-size:13px">تعديل</button>' +
+            '</div>';
+  } else {
+    html += '<div class="detail-name muted">' +
+            '<em>لا يوجد اسم</em> ' +
+            '<button class="link-btn" onclick="openEditName()" style="font-size:13px">إضافة</button>' +
+            '</div>';
+  }
   html += '<div class="detail-badges">';
   html += '<span class="badge badge-' + sub.state + '">' + (stateLabels[sub.state] || sub.state) + '</span>';
   html += '<span class="badge badge-' + (sub.subscription_plan || 'yearly') + '">' + (planLabels[sub.subscription_plan] || sub.subscription_plan || '—') + '</span>';
@@ -677,6 +700,25 @@ async function doRefund() {
   } else {
     alert(d.error || 'فشل الاسترداد');
   }
+}
+
+function openEditName() {
+  document.getElementById('nameInput').value = (currentSubscriber && currentSubscriber.profile_name) || '';
+  openModal('nameModal');
+  setTimeout(() => document.getElementById('nameInput').focus(), 50);
+}
+
+async function doSaveName() {
+  // Empty string = clear the name. We send it as null so the column nulls
+  // out cleanly rather than storing ''.
+  const raw = document.getElementById('nameInput').value.trim();
+  const r = await fetch('/admin/api/subscribers/' + phone, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: raw || null }),
+  });
+  const d = await r.json();
+  if (d.success) { closeModal('nameModal'); loadDetail(); }
+  else alert(d.error || 'فشل حفظ الاسم');
 }
 
 function openEditNote() {
