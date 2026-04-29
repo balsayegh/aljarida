@@ -290,7 +290,7 @@ export function renderLoginPage(errorMessage = null) {
   <p class="subtitle">لوحة التحكم — تسجيل الدخول</p>
   ${errorMessage ? `<div class="alert alert-error">${errorMessage}</div>` : ''}
   <form method="POST" action="/admin/login">
-    <input type="email" name="email" placeholder="البريد الإلكتروني" required autofocus dir="ltr" autocomplete="username" style="margin-bottom:12px">
+    <input type="email" name="email" placeholder="البريد الإلكتروني" required autofocus dir="ltr" autocomplete="username">
     <input type="password" name="password" placeholder="كلمة المرور" required dir="ltr" autocomplete="current-password">
     <button type="submit" class="primary" style="width:100%">دخول</button>
   </form>
@@ -1418,6 +1418,10 @@ function formatDateTime(ts) {
   const d = new Date(ts);
   return d.toLocaleDateString('ar', { year: 'numeric', month: 'short', day: 'numeric' }) +
     ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 loadAdmins();
