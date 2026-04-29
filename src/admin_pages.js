@@ -407,17 +407,17 @@ export function renderDashboardPage() {
 
 <!-- Hero KPIs -->
 <div class="hero-grid">
-  <div class="hero-card">
+  <div class="hero-card kpi-active">
     <div class="hero-label">المشتركون النشطون</div>
     <div class="hero-value" id="hero-active">—</div>
     <div class="hero-sub muted">إجمالي حساب الاشتراك</div>
   </div>
-  <a href="/admin/payments" class="hero-card hero-link" data-roles="supervisor,billing">
+  <a href="/admin/payments" class="hero-card hero-link kpi-revenue" data-roles="supervisor,billing">
     <div class="hero-label">إيرادات الشهر</div>
     <div class="hero-value" id="hero-revenue">—</div>
     <div class="hero-sub muted" id="hero-revenue-delta">—</div>
   </a>
-  <a href="#" class="hero-card hero-link" id="hero-broadcast">
+  <a href="#" class="hero-card hero-link kpi-broadcast" id="hero-broadcast">
     <div class="hero-label">آخر إرسال</div>
     <div class="hero-value" id="hero-broadcast-date">—</div>
     <div class="hero-sub muted" id="hero-broadcast-rate">—</div>
@@ -447,18 +447,18 @@ export function renderDashboardPage() {
 <!-- Active by plan -->
 <h2 style="margin-top:28px; margin-bottom:12px">النشطون حسب نوع الاشتراك</h2>
 <div class="stats-grid">
-  <div class="stat-card"><div class="stat-label">مدفوع (سنوي)</div><div class="stat-value" id="stat-plan-yearly">—</div></div>
-  <div class="stat-card"><div class="stat-label">تجريبي</div><div class="stat-value" id="stat-plan-pilot">—</div></div>
-  <div class="stat-card"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
+  <div class="stat-card plan-yearly"><div class="stat-label">مدفوع (سنوي)</div><div class="stat-value" id="stat-plan-yearly">—</div></div>
+  <div class="stat-card plan-pilot"><div class="stat-label">تجريبي</div><div class="stat-value" id="stat-plan-pilot">—</div></div>
+  <div class="stat-card plan-gift"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
 </div>
 
 <!-- Funnel & growth -->
 <h2 style="margin-top:28px; margin-bottom:12px">الحركة</h2>
 <div class="stats-grid">
-  <div class="stat-card"><div class="stat-label">قيد الاشتراك</div><div class="stat-value" id="stat-inflight">—</div></div>
-  <div class="stat-card"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
-  <div class="stat-card"><div class="stat-label">ملغي</div><div class="stat-value" id="stat-unsub">—</div></div>
-  <div class="stat-card"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
+  <div class="stat-card funnel-inflight"><div class="stat-label">قيد الاشتراك</div><div class="stat-value" id="stat-inflight">—</div></div>
+  <div class="stat-card funnel-new"><div class="stat-label">جدد 24 ساعة</div><div class="stat-value" id="stat-new">—</div></div>
+  <div class="stat-card funnel-unsub"><div class="stat-label">ملغي</div><div class="stat-value" id="stat-unsub">—</div></div>
+  <div class="stat-card funnel-total"><div class="stat-label">الإجمالي</div><div class="stat-value" id="stat-total">—</div></div>
 </div>
 
 <!-- Charts -->
@@ -497,12 +497,39 @@ export function renderDashboardPage() {
   background: white; padding: 24px; border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   text-decoration: none; color: inherit;
+  border-top: 4px solid #d1d1d6;
 }
 .hero-card.hero-link { cursor: pointer; transition: transform 0.1s, box-shadow 0.1s; }
 .hero-card.hero-link:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); text-decoration: none; }
 .hero-label { font-size: 13px; color: #666; margin-bottom: 8px; }
 .hero-value { font-size: 32px; font-weight: 700; color: #111; line-height: 1.1; }
 .hero-sub { font-size: 13px; margin-top: 6px; }
+
+/* Hero category accents */
+.hero-card.kpi-active    { border-top-color: #10b981; }
+.hero-card.kpi-active    .hero-value { color: #047857; }
+.hero-card.kpi-revenue   { border-top-color: #f59e0b; }
+.hero-card.kpi-revenue   .hero-value { color: #b45309; }
+.hero-card.kpi-broadcast { border-top-color: #0066cc; }
+.hero-card.kpi-broadcast .hero-value { color: #0066cc; }
+
+/* Plan-breakdown accents */
+.stat-card.plan-yearly { border-top: 3px solid #10b981; }
+.stat-card.plan-yearly .stat-value { color: #047857; }
+.stat-card.plan-pilot  { border-top: 3px solid #06b6d4; }
+.stat-card.plan-pilot  .stat-value { color: #0e7490; }
+.stat-card.plan-gift   { border-top: 3px solid #ec4899; }
+.stat-card.plan-gift   .stat-value { color: #be185d; }
+
+/* Funnel accents */
+.stat-card.funnel-inflight { border-top: 3px solid #a855f7; }
+.stat-card.funnel-inflight .stat-value { color: #7e22ce; }
+.stat-card.funnel-new      { border-top: 3px solid #14b8a6; }
+.stat-card.funnel-new      .stat-value { color: #0f766e; }
+.stat-card.funnel-unsub    { border-top: 3px solid #94a3b8; }
+.stat-card.funnel-unsub    .stat-value { color: #475569; }
+.stat-card.funnel-total    { border-top: 3px solid #64748b; }
+.stat-card.funnel-total    .stat-value { color: #334155; }
 
 .alerts-grid {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
