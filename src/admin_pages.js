@@ -72,7 +72,7 @@ export const SHARED_CSS = `
   }
   .label-row label { margin: 0; }
   input[type="text"], input[type="tel"], input[type="search"], input[type="url"],
-  input[type="password"], input[type="number"], input[type="date"],
+  input[type="email"], input[type="password"], input[type="number"], input[type="date"],
   select, textarea {
     width: 100%; padding: 10px 14px; font-size: 14px;
     border: 1px solid #d1d1d6; border-radius: 8px; margin-bottom: 14px;
