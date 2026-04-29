@@ -1,3 +1,30 @@
+// AlJarida wordmark — inlined so we don't need static-asset hosting on the
+// Worker. Source: src/aljarida_logo.svg (77.17 x 24 viewBox).
+export const ALJARIDA_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 77.17 24" preserveAspectRatio="xMidYMid meet">
+  <path d="M2.12,15.59c-1.17,0-2.12.91-2.12,2.02s.95,2.02,2.12,2.02,2.13-.91,2.13-2.02-.95-2.02-2.13-2.02" fill="#6fccf4"/>
+  <g fill="#1c78be">
+    <polygon points="76.9 .86 72.94 .86 72.94 19.24 77.17 19.24 77.17 .86 76.9 .86"/>
+    <path d="M67.53.86v14.19h-2.57c.46-6.52-3.66-12.7-13.92-9.52v3.42c3.71-1.17,6.55-.53,8.03.98,1.29,1.31,1.41,3.41,1.05,5.12h-11.58V5.1h-4.23v12.79c0,2.04-.92,2.86-3.46,2.67v3.25c5,.89,7.55-1.5,7.67-4.57h23.24V.86h-4.23Z"/>
+    <path d="M12.23,4.62c-4.35,0-7.89,3.36-7.89,7.51s3.53,7.51,7.89,7.51,7.89-3.36,7.89-7.51-3.53-7.51-7.89-7.51ZM12.23,15.61c-1.77,0-3.2-1.56-3.2-3.49s1.43-3.49,3.2-3.49,3.21,1.56,3.21,3.49-1.44,3.49-3.21,3.49Z"/>
+    <path d="M41.99,5.1h-4.23v9.96h-3.37c.45-6.36-3.46-12.39-13.16-9.74v3.43c3.34-.86,5.89-.21,7.27,1.2,1.29,1.31,1.41,3.41,1.05,5.12h-9.14v4.19h21.58V5.1Z"/>
+    <path d="M58.03,19.9c-1.17,0-2.12.91-2.12,2.02s.95,2.02,2.12,2.02,2.13-.91,2.13-2.02-.95-2.02-2.13-2.02Z"/>
+    <path d="M37.19,19.9c-1.17,0-2.12.91-2.12,2.02s.95,2.02,2.12,2.02,2.13-.91,2.13-2.02-.95-2.02-2.13-2.02Z"/>
+    <path d="M32.48,19.9c-1.17,0-2.12.91-2.12,2.02s.95,2.02,2.12,2.02,2.13-.91,2.13-2.02-.95-2.02-2.13-2.02Z"/>
+    <path d="M14.58,4.05c1.17,0,2.13-.91,2.13-2.02s-.95-2.02-2.13-2.02-2.12.91-2.12,2.02.95,2.02,2.12,2.02Z"/>
+    <path d="M9.88,4.05c1.17,0,2.13-.91,2.13-2.02s-.95-2.02-2.13-2.02-2.12.91-2.12,2.02.95,2.02,2.12,2.02Z"/>
+    <path d="M45.6,3.02c.28,0,.54-.11.75-.32v.27h.41V.74h-.41v.27c-.21-.22-.47-.33-.77-.33-.34,0-.6.11-.82.35-.21.22-.32.51-.32.82,0,.67.49,1.18,1.17,1.18ZM45.61,1.07c.4,0,.76.35.76.8,0,.42-.36.77-.75.77-.42,0-.77-.33-.77-.8,0-.44.35-.77.76-.77Z"/>
+    <rect x="48.13" y=".02" width=".4" height="2.95"/>
+    <path d="M50.35,2.99V.74h-.4v2.23c0,.24-.02.32-.27.32v.4s.06,0,.09,0c.43,0,.58-.22.58-.7Z"/>
+    <path d="M52.82,3.02c.28,0,.54-.11.75-.32v.27h.41V.74h-.41v.27c-.21-.22-.47-.33-.77-.33-.34,0-.6.11-.82.35-.21.22-.32.51-.32.82,0,.67.49,1.18,1.17,1.18ZM52.83,1.07c.4,0,.76.35.76.8,0,.42-.36.77-.75.77-.42,0-.77-.33-.77-.8,0-.44.35-.77.76-.77Z"/>
+    <path d="M55.76,1.73c0-.39.12-.58.5-.61v-.42c-.23,0-.39.1-.53.29v-.26h-.38v2.23h.4v-1.24Z"/>
+    <rect x="57.47" y=".74" width=".4" height="2.23"/>
+    <path d="M60.32,3.02c.28,0,.54-.11.75-.32v.27h.41V.02h-.4v.99c-.22-.22-.47-.33-.78-.33-.34,0-.6.11-.82.35-.21.22-.32.51-.32.82,0,.67.49,1.18,1.17,1.18ZM60.33,1.07c.4,0,.76.35.76.8,0,.42-.36.77-.75.77-.42,0-.77-.33-.77-.8,0-.44.35-.77.76-.77Z"/>
+    <path d="M63.91,3.02c.28,0,.54-.11.75-.32v.27h.41V.74h-.41v.27c-.21-.22-.47-.33-.77-.33-.34,0-.6.11-.82.35-.21.22-.32.51-.32.82,0,.67.49,1.18,1.17,1.18ZM63.92,1.07c.4,0,.76.35.76.8,0,.42-.36.77-.75.77-.42,0-.77-.33-.77-.8,0-.44.35-.77.76-.77Z"/>
+    <path d="M50.15.43c.12,0,.22-.09.22-.21s-.1-.21-.22-.21-.22.09-.22.21.1.21.22.21Z"/>
+    <path d="M57.67.43c.12,0,.22-.09.22-.21s-.1-.21-.22-.21-.22.09-.22.21.1.21.22.21Z"/>
+  </g>
+</svg>`;
+
 /**
  * Admin HTML page renderers.
  *
@@ -30,8 +57,14 @@ export const SHARED_CSS = `
     z-index: 100; overflow-y: auto;
   }
   .sidenav-brand {
-    padding: 20px 22px; font-size: 16px; font-weight: 600;
-    border-bottom: 1px solid #e5e5e7; line-height: 1.3;
+    padding: 22px; border-bottom: 1px solid #e5e5e7;
+  }
+  .sidenav-brand .brand-logo svg {
+    width: 100%; max-width: 160px; height: auto; display: block;
+  }
+  .sidenav-brand .brand-sub {
+    display: block; font-size: 12px; color: #666; font-weight: 500;
+    margin-top: 8px; letter-spacing: 0.3px;
   }
   .sidenav-links { display: flex; flex-direction: column; padding: 12px 0; flex: 1; }
   .sidenav-links a {
@@ -266,7 +299,10 @@ export function pageShell(title, activePage, bodyHtml) {
 
 <button type="button" class="sidenav-toggle" id="sidenavToggle" aria-label="Open menu">☰</button>
 <nav class="sidenav" id="sidenav">
-  <div class="sidenav-brand">جريدة الجريدة<br><span style="color:#666;font-weight:500;font-size:14px">النسخة الرقمية</span></div>
+  <div class="sidenav-brand">
+    <div class="brand-logo">${ALJARIDA_LOGO_SVG}</div>
+    <span class="brand-sub">النسخة الرقمية</span>
+  </div>
   <div class="sidenav-links">
     <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
     <a href="/admin/publish" class="${activePage === 'publish' ? 'active' : ''}" data-roles="supervisor,publisher">إرسال العدد</a>
@@ -339,13 +375,15 @@ export function renderLoginPage(errorMessage = null) {
 <style>${SHARED_CSS}
   body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
   .login-card { background: white; padding: 40px; border-radius: 12px; max-width: 400px; width: 100%; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
-  .login-card h1 { margin: 0 0 8px; font-size: 22px; }
-  .login-card .subtitle { margin: 0 0 28px; }
+  .login-card .brand-logo svg { width: 220px; max-width: 100%; height: auto; display: block; margin: 0 auto 8px; }
+  .login-card .brand-sub-line { text-align: center; font-size: 14px; color: #666; margin: 0 0 20px; }
+  .login-card .subtitle { margin: 0 0 28px; text-align: center; }
 </style>
 </head>
 <body>
 <div class="login-card">
-  <h1>جريدة الجريدة - النسخة الرقمية</h1>
+  <div class="brand-logo">${ALJARIDA_LOGO_SVG}</div>
+  <p class="brand-sub-line">النسخة الرقمية</p>
   <p class="subtitle">لوحة التحكم — تسجيل الدخول</p>
   ${errorMessage ? `<div class="alert alert-error">${errorMessage}</div>` : ''}
   <form method="POST" action="/admin/login">
