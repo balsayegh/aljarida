@@ -180,6 +180,22 @@ CREATE INDEX IF NOT EXISTS idx_payments_date ON payments(payment_date DESC);
 CREATE INDEX IF NOT EXISTS idx_payments_state ON payments(state);
 
 -- ----------------------------------------------------------------------------
+-- Archive requests (paid subscribers asking for past editions via WhatsApp)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS archive_requests (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone           TEXT NOT NULL,
+  requested_date  TEXT NOT NULL,
+  pdf_url         TEXT,
+  status          TEXT NOT NULL,    -- sent / not_found / rate_limited / not_eligible / send_failed
+  requested_at    INTEGER NOT NULL,
+  wa_message_id   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_archive_phone_time
+  ON archive_requests(phone, requested_at DESC);
+
+-- ----------------------------------------------------------------------------
 -- Admins (multi-user with roles: supervisor, billing, publisher)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS admins (

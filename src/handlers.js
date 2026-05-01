@@ -10,6 +10,7 @@ import { sendTextMessage, sendOfferWithButtons } from './whatsapp.js';
 import { messages as t } from './templates.js';
 import { handleTemplateButtonReply } from './webhook_v2.js';
 import { createAndSendCheckoutLink } from './payment.js';
+import { parseArchiveDate, handleArchiveRequest } from './archive.js';
 
 export async function handleInboundMessage(message, contacts, env) {
   const from = message.from;
@@ -191,6 +192,15 @@ async function sendCheckoutLink(env, phone, subscriber) {
 }
 
 async function handleActiveSubscriber(env, phone, subscriber, message) {
+  // If the message is text and contains a parseable past date, route to the
+  // archive flow (paid yearly only — eligibility check + rate limit live in
+  // src/archive.js). Otherwise fall through to the standard ack.
+  if (message.type === 'text') {
+    const date = parseArchiveDate(message.text?.body || '');
+    if (date) {
+      return handleArchiveRequest(env, phone, subscriber, date);
+    }
+  }
   await sendTextMessage(env, phone, t.activeAck);
 }
 
