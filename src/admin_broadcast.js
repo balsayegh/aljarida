@@ -19,7 +19,7 @@ const BROADCAST_CHUNK_SIZE = 15;
 
 export async function handleBroadcast(request, env, ctx) {
   try {
-    const { date, override, customPdfUrl, targetDateOverride } = await request.json();
+    const { date, override, customPdfUrl, targetDateOverride, scheduledAt } = await request.json();
 
     if (!date) {
       return jsonResponse({ error: 'Missing date' }, 400);
@@ -85,9 +85,40 @@ export async function handleBroadcast(request, env, ctx) {
       return jsonResponse({ error: `Could not reach PDF URL: ${err.message}`, pdfUrl }, 400);
     }
 
+    const now = Date.now();
+
+    // ---- Scheduled mode -----------------------------------------------------
+    // If admin supplied scheduledAt (ms epoch in the future), persist a row
+    // in 'scheduled' state and return immediately. The cron's every-5-minute
+    // tick will pick it up at fire time, re-query subscribers, and fan out.
+    if (scheduledAt) {
+      const scheduledMs = Number(scheduledAt);
+      if (!Number.isFinite(scheduledMs)) {
+        return jsonResponse({ error: 'scheduledAt must be a numeric ms epoch' }, 400);
+      }
+      // Allow a 60s grace period in case the client clock is slightly behind.
+      if (scheduledMs <= now - 60_000) {
+        return jsonResponse({ error: 'scheduledAt is in the past' }, 400);
+      }
+
+      const result = await env.DB.prepare(
+        `INSERT INTO broadcasts
+          (date_string, pdf_url, target_count, status, started_at, scheduled_at)
+         VALUES (?, ?, 0, 'scheduled', ?, ?)`
+      ).bind(date, pdfUrl, now, scheduledMs).run();
+
+      return jsonResponse({
+        success: true,
+        broadcast_id: result.meta.last_row_id,
+        status: 'scheduled',
+        scheduled_at: scheduledMs,
+        pdfUrl,
+      }, 201);
+    }
+
+    // ---- Immediate mode -----------------------------------------------------
     // v2: Only send to active subscribers whose subscription hasn't expired
     // Pilot plan is excluded from expiry check
-    const now = Date.now();
     const { results: subscribers } = await env.DB.prepare(
       `SELECT phone FROM subscribers
        WHERE state = 'active'

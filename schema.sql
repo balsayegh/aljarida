@@ -115,12 +115,18 @@ CREATE TABLE IF NOT EXISTS broadcasts (
   sent_count         INTEGER DEFAULT 0,
   failed_count       INTEGER DEFAULT 0,
   status             TEXT DEFAULT 'in_progress',
+                                          -- 'in_progress' | 'completed' | 'stalled'
+                                          -- | 'scheduled' | 'canceled_scheduled'
   triggered_by       TEXT,
-  started_at         INTEGER NOT NULL,
-  finished_at        INTEGER
+  started_at         INTEGER NOT NULL,    -- when the row was created
+  finished_at        INTEGER,
+  scheduled_at       INTEGER               -- NULL for immediate; set for scheduled
 );
 
 CREATE INDEX IF NOT EXISTS idx_broadcasts_started ON broadcasts(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_broadcasts_scheduled
+  ON broadcasts(status, scheduled_at)
+  WHERE status = 'scheduled';
 
 -- ----------------------------------------------------------------------------
 -- Broadcast recipients (per-subscriber delivery status for each broadcast)

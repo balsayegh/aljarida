@@ -892,7 +892,26 @@ export function renderPublishPage() {
     </div>
   </div>
 
-  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:16px">
+  <!-- Send mode: now vs scheduled -->
+  <div class="label-row" style="margin-top:8px">
+    <label>توقيت الإرسال</label>
+  </div>
+  <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px">
+    <label style="display:flex; align-items:center; gap:6px; font-weight:normal">
+      <input type="radio" name="sendMode" value="now" checked onchange="onSendModeChange()"> إرسال الآن
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; font-weight:normal">
+      <input type="radio" name="sendMode" value="schedule" onchange="onSendModeChange()"> جدولة
+    </label>
+    <div id="scheduledAtWrap" style="display:none; flex:1; min-width:200px">
+      <input type="datetime-local" id="scheduledAt" dir="ltr">
+      <div class="muted" style="font-size:12px; margin-top:-10px">
+        وقت الكويت — الإرسال يبدأ فعلياً خلال 5 دقائق من الوقت المحدد.
+      </div>
+    </div>
+  </div>
+
+  <button class="primary" id="sendBtn" onclick="sendBroadcast()" style="margin-top:8px">
     إرسال لجميع المشتركين النشطين
   </button>
 
@@ -900,6 +919,11 @@ export function renderPublishPage() {
   <div class="progress-bar" id="progressBar" style="display:none">
     <div class="progress-fill" id="progressFill"></div>
   </div>
+</div>
+
+<div class="card" id="scheduledCard">
+  <h2>الجدول القادم</h2>
+  <div id="scheduledList"><div class="empty-state" style="padding:20px">جارٍ التحميل…</div></div>
 </div>
 
 <div class="card" id="lastBroadcastCard" style="display:none">
@@ -1005,12 +1029,78 @@ async function loadLastBroadcast() {
     }
   } catch {}
 }
+
+async function loadScheduled() {
+  try {
+    const r = await fetch('/admin/api/scheduled-broadcasts');
+    const d = await r.json();
+    const list = d.scheduled || [];
+    const root = document.getElementById('scheduledList');
+    if (!list.length) {
+      root.innerHTML = '<div class="empty-state" style="padding:20px">لا توجد عمليات إرسال مجدولة</div>';
+      return;
+    }
+    let html = '<table><thead><tr><th>الموعد</th><th>التاريخ</th><th>الرابط</th><th></th></tr></thead><tbody>';
+    list.forEach(s => {
+      const when = new Date(s.scheduled_at).toLocaleString('ar', {
+        year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit',
+        timeZone:'Asia/Kuwait'
+      });
+      html += '<tr>' +
+        '<td>' + escapeHtml(when) + '</td>' +
+        '<td>' + escapeHtml(s.date_string) + '</td>' +
+        '<td class="muted" style="font-size:11px;direction:ltr;text-align:left">' + escapeHtml((s.pdf_url || '').slice(-50)) + '</td>' +
+        '<td><button class="danger small" onclick="cancelScheduled(' + s.id + ')">إلغاء</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    root.innerHTML = html;
+  } catch {
+    document.getElementById('scheduledList').innerHTML =
+      '<div class="empty-state" style="padding:20px">خطأ في التحميل</div>';
+  }
+}
+
+async function cancelScheduled(id) {
+  if (!confirm('إلغاء هذه الجدولة؟')) return;
+  const r = await fetch('/admin/api/scheduled-broadcasts/' + id + '/cancel', { method: 'POST' });
+  const d = await r.json();
+  if (d.success) loadScheduled();
+  else alert(d.error || 'فشل الإلغاء');
+}
+
+function onSendModeChange() {
+  const mode = document.querySelector('input[name="sendMode"]:checked').value;
+  document.getElementById('scheduledAtWrap').style.display = mode === 'schedule' ? 'block' : 'none';
+  document.getElementById('sendBtn').textContent =
+    mode === 'schedule' ? 'جدولة الإرسال' : 'إرسال لجميع المشتركين النشطين';
+}
+
 loadLastBroadcast();
+loadScheduled();
+setInterval(loadScheduled, 60000);
 
 async function sendBroadcast() {
   const targetDateIso = document.getElementById('targetDate').value;
   const date = document.getElementById('date').value.trim();
   if (!date) { showAlert('sendStatus', 'يُرجى تعبئة التاريخ', 'error'); return; }
+
+  const mode = document.querySelector('input[name="sendMode"]:checked').value;
+  let scheduledAtMs = null;
+  if (mode === 'schedule') {
+    const raw = document.getElementById('scheduledAt').value;
+    if (!raw) { showAlert('sendStatus', 'يُرجى اختيار وقت الجدولة', 'error'); return; }
+    // datetime-local gives us the wallclock the user typed; treat as Kuwait
+    // local (+03:00 always, no DST) and convert to ms epoch.
+    const parsedMs = Date.parse(raw + ':00+03:00');
+    if (!Number.isFinite(parsedMs)) {
+      showAlert('sendStatus', 'تعذّر قراءة وقت الجدولة', 'error'); return;
+    }
+    if (parsedMs <= Date.now()) {
+      showAlert('sendStatus', 'وقت الجدولة يجب أن يكون في المستقبل', 'error'); return;
+    }
+    scheduledAtMs = parsedMs;
+  }
 
   let customUrl = null;
   if (urlMode === 'manual') {
@@ -1033,24 +1123,38 @@ async function sendBroadcast() {
     override = true;
   } else {
     const urlInfo = customUrl ? '\\n\\nرابط مخصص: ' + customUrl : '';
-    if (!confirm('هل تريد إرسال عدد "' + date + '" لجميع المشتركين النشطين؟' + urlInfo)) return;
+    const action = mode === 'schedule' ? 'جدولة' : 'إرسال';
+    if (!confirm('هل تريد ' + action + ' عدد "' + date + '" لجميع المشتركين النشطين؟' + urlInfo)) return;
   }
 
   const btn = document.getElementById('sendBtn');
   btn.disabled = true;
-  btn.textContent = 'جارٍ الإرسال...';
-  showAlert('sendStatus', 'جارٍ الإرسال، قد يستغرق ذلك بضع دقائق...', 'warning');
-  document.getElementById('progressBar').style.display = 'block';
+  btn.textContent = mode === 'schedule' ? 'جارٍ الجدولة...' : 'جارٍ الإرسال...';
+  showAlert('sendStatus',
+    mode === 'schedule' ? 'جارٍ الجدولة...' : 'جارٍ الإرسال، قد يستغرق ذلك بضع دقائق...',
+    mode === 'schedule' ? 'info' : 'warning');
+  document.getElementById('progressBar').style.display = mode === 'schedule' ? 'none' : 'block';
   document.getElementById('progressFill').style.width = '30%';
 
   try {
     const r = await fetch('/admin/api/broadcast', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, override, targetDateOverride: targetDateIso, customPdfUrl: customUrl }),
+      body: JSON.stringify({
+        date, override,
+        targetDateOverride: targetDateIso,
+        customPdfUrl: customUrl,
+        scheduledAt: scheduledAtMs,
+      }),
     });
     const d = await r.json();
     document.getElementById('progressFill').style.width = '100%';
-    if (d.success && d.status === 'queued') {
+    if (d.success && d.status === 'scheduled') {
+      const when = new Date(d.scheduled_at).toLocaleString('ar', {
+        month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'Asia/Kuwait'
+      });
+      showAlert('sendStatus', 'تمت الجدولة للموعد: ' + when + ' (وقت الكويت).', 'success');
+      loadScheduled();
+    } else if (d.success && d.status === 'queued') {
       showAlert('sendStatus', 'تم جدولة الإرسال لـ ' + d.total + ' مشترك. ' +
         '<a href="/admin/broadcasts/' + d.broadcast_id + '">عرض التفاصيل ←</a>', 'info');
     } else if (d.success) {
@@ -1065,7 +1169,8 @@ async function sendBroadcast() {
     showAlert('sendStatus', 'خطأ: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'إرسال لجميع المشتركين النشطين';
+    btn.textContent = mode === 'schedule' ? 'جدولة الإرسال' : 'إرسال لجميع المشتركين النشطين';
+    document.getElementById('progressBar').style.display = 'none';
     loadLastBroadcast();
   }
 }

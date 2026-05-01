@@ -286,6 +286,19 @@ async function dispatch(request, env, ctx, url, admin) {
     return handleBroadcast(request, env, ctx);
   }
 
+  // Scheduled broadcasts: list pending + cancel one
+  if (path === '/admin/api/scheduled-broadcasts' && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_PUBLISHER]);
+    if (denied) return denied;
+    return handleApiScheduledList(env);
+  }
+  const apiCancelScheduledMatch = path.match(/^\/admin\/api\/scheduled-broadcasts\/(\d+)\/cancel$/);
+  if (apiCancelScheduledMatch && method === 'POST') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR, ROLE_PUBLISHER]);
+    if (denied) return denied;
+    return handleApiScheduledCancel(env, apiCancelScheduledMatch[1], admin);
+  }
+
   // Broadcasts list/detail — all roles
   if (path === '/admin/api/broadcasts' && method === 'GET') {
     return handleApiBroadcastsList(env);
@@ -1228,6 +1241,39 @@ async function handleApiBroadcastDetail(env, id, request) {
       total_pages: Math.ceil((stats?.total || 0) / perPage),
     },
   });
+}
+
+// ----------------------------------------------------------------------------
+// API: Scheduled broadcasts (list + cancel)
+// ----------------------------------------------------------------------------
+
+async function handleApiScheduledList(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT id, date_string, pdf_url, scheduled_at, started_at, triggered_by
+     FROM broadcasts
+     WHERE status = 'scheduled'
+     ORDER BY scheduled_at`
+  ).all();
+  return jsonResponse({ scheduled: results || [] });
+}
+
+async function handleApiScheduledCancel(env, idStr, actor) {
+  const id = parseInt(idStr, 10);
+  if (!Number.isFinite(id)) return jsonResponse({ error: 'invalid id' }, 400);
+
+  const result = await env.DB.prepare(
+    `UPDATE broadcasts
+     SET status = 'canceled_scheduled', finished_at = ?
+     WHERE id = ? AND status = 'scheduled'`
+  ).bind(Date.now(), id).run();
+
+  if (!result.meta?.changes) {
+    return jsonResponse({
+      error: 'الجدولة غير موجودة أو فُعّلت بالفعل',
+    }, 404);
+  }
+  console.log(`[scheduled] canceled broadcast ${id} by ${actor.email}`);
+  return jsonResponse({ success: true });
 }
 
 // ----------------------------------------------------------------------------

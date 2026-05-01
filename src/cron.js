@@ -11,6 +11,7 @@
 
 import { sendRenewalReminder } from './whatsapp_v2.js';
 import { logEvent, formatDaysRemaining } from './subscription.js';
+import { enqueueBroadcast } from './broadcast_queue.js';
 
 // Plans that never receive automated renewal reminders. The reminder
 // template's body says "12 د.ك / سنوياً" — appropriate for paid yearly
@@ -286,6 +287,104 @@ async function checkStuckBroadcasts(env) {
  * window. broadcasts table is left intact so historical summaries stay
  * available; only the per-recipient detail and raw status events are dropped.
  */
+/**
+ * Every-5-minute scheduler tick. Picks up `broadcasts` rows that are
+ * sitting in `scheduled` state with `scheduled_at <= now()` and:
+ *   1. Re-verifies the PDF URL (HEAD)
+ *   2. Re-queries active subscribers
+ *   3. Promotes the row to in_progress (atomically — if a second tick
+ *      lands the change-count guard prevents a double-fire)
+ *   4. Fans out via the broadcast queue
+ *
+ * Cron-triggered work always uses the queue path regardless of the
+ * USE_BROADCAST_QUEUE flag, because the cron handler has a tighter
+ * CPU budget than the inline immediate path (which runs in admin
+ * request context).
+ */
+export async function handleScheduledBroadcastsTick(env, ctx) {
+  const now = Date.now();
+  const { results: due } = await env.DB.prepare(
+    `SELECT id, date_string, pdf_url, scheduled_at, triggered_by
+     FROM broadcasts
+     WHERE status = 'scheduled' AND scheduled_at <= ?
+     ORDER BY scheduled_at
+     LIMIT 10`
+  ).bind(now).all();
+
+  if (!due || !due.length) return { fired: 0 };
+
+  let fired = 0, canceled = 0, errors = 0;
+  for (const row of due) {
+    try {
+      // 1. Verify PDF still resolves
+      let pdfOk = false;
+      try {
+        const headResp = await fetch(row.pdf_url, { method: 'HEAD' });
+        pdfOk = headResp.ok;
+      } catch {
+        pdfOk = false;
+      }
+      if (!pdfOk) {
+        await env.DB.prepare(
+          `UPDATE broadcasts SET status='canceled_scheduled', finished_at=?
+           WHERE id=? AND status='scheduled'`
+        ).bind(now, row.id).run();
+        console.warn(`[scheduled] PDF unreachable for broadcast ${row.id} (${row.pdf_url}); canceled`);
+        canceled++;
+        continue;
+      }
+
+      // 2. Active subscribers (re-query at fire time, not schedule time —
+      //    new signups since scheduling get included; expired drop out)
+      const { results: subscribers } = await env.DB.prepare(
+        `SELECT phone FROM subscribers
+         WHERE state = 'active'
+           AND (subscription_plan = 'pilot'
+                OR subscription_end_at IS NULL
+                OR subscription_end_at >= ?)
+         ORDER BY phone`
+      ).bind(now).all();
+
+      if (!subscribers || !subscribers.length) {
+        await env.DB.prepare(
+          `UPDATE broadcasts SET status='canceled_scheduled', finished_at=?
+           WHERE id=? AND status='scheduled'`
+        ).bind(now, row.id).run();
+        console.warn(`[scheduled] no active subscribers for broadcast ${row.id}; canceled`);
+        canceled++;
+        continue;
+      }
+
+      // 3. Atomically promote to in_progress. If a duplicate tick races us,
+      //    only one update will see status='scheduled' and increment changes.
+      const result = await env.DB.prepare(
+        `UPDATE broadcasts
+         SET status='in_progress', target_count=?, started_at=?
+         WHERE id=? AND status='scheduled'`
+      ).bind(subscribers.length, now, row.id).run();
+      if (!result.meta?.changes) {
+        // Lost the race — already promoted by another tick
+        continue;
+      }
+
+      // 4. Queue fan-out
+      if (!env.BROADCAST_QUEUE) {
+        console.error(`[scheduled] BROADCAST_QUEUE binding missing — broadcast ${row.id} stuck in_progress`);
+        errors++;
+        continue;
+      }
+      await enqueueBroadcast(env, row.id, subscribers, row.pdf_url, row.date_string);
+      console.log(`[scheduled] fired broadcast ${row.id} → ${subscribers.length} subscribers`);
+      fired++;
+    } catch (err) {
+      console.error(`[scheduled] firing broadcast ${row.id} failed:`, err);
+      errors++;
+    }
+  }
+
+  return { fired, canceled, errors };
+}
+
 async function pruneOldBroadcastData(env) {
   const cutoff = Date.now() - BROADCAST_RETENTION_DAYS * DAY_MS;
 

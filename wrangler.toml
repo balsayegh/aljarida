@@ -33,10 +33,15 @@ WHATSAPP_PAYMENT_TEMPLATE_NAME = "aljarida_payment_link_ar"
 # subscriber. Approved by Meta on 2026-04-28 (UTILITY).
 WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME = "aljarida_gift_welcome_ar"
 
-# Daily cron — 10 AM Kuwait time (7 AM UTC)
-# Runs: renewal reminders, auto-pause expired, timeout pending phone changes
+# Cron triggers:
+#   "0 7 * * *"   — Daily at 10 AM Kuwait (7 AM UTC). Renewal reminders,
+#                   auto-pause expired, phone-change timeout, stuck-broadcast
+#                   watchdog, retention pruning.
+#   "*/5 * * * *" — Every 5 minutes. Promotes due scheduled broadcasts
+#                   (status='scheduled' AND scheduled_at <= now) to
+#                   in_progress and starts the queue producer.
 [triggers]
-crons = ["0 7 * * *"]
+crons = ["0 7 * * *", "*/5 * * * *"]
 
 # ----------------------------------------------------------------------------
 # Broadcast queue — producer fans out daily delivery sends; consumer talks to Meta.

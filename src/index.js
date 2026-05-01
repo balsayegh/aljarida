@@ -4,7 +4,7 @@
 
 import { handleInboundMessage, handleStatusUpdates } from './handlers.js';
 import { handleAdminRequest } from './admin.js';
-import { handleScheduledTask } from './cron.js';
+import { handleScheduledTask, handleScheduledBroadcastsTick } from './cron.js';
 import { timingSafeEqual, verifyMetaSignature } from './crypto_util.js';
 import { handleBroadcastQueue, handleBroadcastDlq } from './broadcast_queue.js';
 import { handleOttuWebhook, handlePaymentSuccess } from './payment.js';
@@ -44,10 +44,20 @@ export default {
   },
 
   /**
-   * Scheduled handler — called by Cloudflare Cron Triggers.
-   * Runs daily at 10 AM Kuwait time (7 AM UTC) per wrangler.toml.
+   * Scheduled handler — called by Cloudflare Cron Triggers. Two cron
+   * expressions live in wrangler.toml; we dispatch by event.cron so each
+   * gets its own task without one fighting the other.
+   *
+   *   "0 7 * * *"   → daily housekeeping (10 AM Kuwait)
+   *   "*\/5 * * * *" → scheduled-broadcast scheduler (every 5 minutes)
    */
   async scheduled(event, env, ctx) {
+    if (event.cron === '*/5 * * * *') {
+      ctx.waitUntil(handleScheduledBroadcastsTick(env, ctx));
+      return;
+    }
+    // Default: daily housekeeping. Includes the legacy "0 7 * * *" plus
+    // any future single-shot cron we don't explicitly route.
     ctx.waitUntil(handleScheduledTask(event, env, ctx));
   },
 
