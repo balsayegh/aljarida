@@ -33,6 +33,10 @@ WHATSAPP_PAYMENT_TEMPLATE_NAME = "aljarida_payment_link_ar"
 # subscriber. Approved by Meta on 2026-04-28 (UTILITY).
 WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME = "aljarida_gift_welcome_ar"
 
+# xAI / Grok model for fact-check requests. XAI_API_KEY must be set as a
+# wrangler secret (`wrangler secret put XAI_API_KEY`).
+GROK_MODEL = "grok-2-vision-1212"
+
 # Cron triggers:
 #   "0 7 * * *"   — Daily at 10 AM Kuwait (7 AM UTC). Renewal reminders,
 #                   auto-pause expired, phone-change timeout, stuck-broadcast

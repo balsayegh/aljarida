@@ -11,6 +11,7 @@ import { messages as t } from './templates.js';
 import { handleTemplateButtonReply } from './webhook_v2.js';
 import { createAndSendCheckoutLink } from './payment.js';
 import { parseArchiveDate, handleArchiveRequest } from './archive.js';
+import { parseFactCheckTrigger, handleFactCheckRequest } from './factcheck.js';
 
 export async function handleInboundMessage(message, contacts, env) {
   const from = message.from;
@@ -50,6 +51,16 @@ export async function handleInboundMessage(message, contacts, env) {
     if (isOptOutKeyword(text)) {
       return handleOptOut(env, from, subscriber);
     }
+  }
+
+  // Fact-check trigger ("تحقق") works for active subscribers regardless of
+  // plan. The handler itself enforces eligibility (state='active') and
+  // rate limits — putting the dispatch here means this short-circuits the
+  // state-based router so e.g. an active subscriber's "تحقق:" doesn't fall
+  // through to activeAck.
+  const factTrigger = parseFactCheckTrigger(message);
+  if (factTrigger && subscriber.state !== 'unsubscribed') {
+    return handleFactCheckRequest(env, from, subscriber, factTrigger);
   }
 
   switch (subscriber.state) {

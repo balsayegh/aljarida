@@ -196,6 +196,27 @@ CREATE INDEX IF NOT EXISTS idx_archive_phone_time
   ON archive_requests(phone, requested_at DESC);
 
 -- ----------------------------------------------------------------------------
+-- Fact-check requests (forwarded to Grok / xAI)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS factcheck_requests (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone           TEXT NOT NULL,
+  type            TEXT NOT NULL,        -- 'text' | 'image'
+  prompt_text     TEXT,
+  media_id        TEXT,
+  verdict         TEXT,                 -- parsed shortcut: ok / review / wrong / unknown
+  response_text   TEXT,
+  status          TEXT NOT NULL,
+  requested_at    INTEGER NOT NULL,
+  latency_ms      INTEGER,
+  error           TEXT,
+  wa_message_id   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_factcheck_phone_time
+  ON factcheck_requests(phone, requested_at DESC);
+
+-- ----------------------------------------------------------------------------
 -- Admins (multi-user with roles: supervisor, billing, publisher)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS admins (

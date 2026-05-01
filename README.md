@@ -82,6 +82,7 @@ Set via `wrangler secret put NAME` and confirmed with `wrangler secret list`. Ne
 | `OTTU_API_KEY` | Ottu API key (private) |
 | `OTTU_WEBHOOK_SECRET` | HMAC key for Ottu webhook signature verification |
 | `ADMIN_PASSWORD` | Session-cookie HMAC signing key + bootstrap password for the very first supervisor login (used only when the `admins` table is empty). After bootstrap, login is by `admins`-table email/password; this secret stays around purely as the session-cookie signing key. |
+| `XAI_API_KEY` | xAI / Grok API key for the fact-check feature (subscribers sending "تحقق: ..."). Without this set, the fact-check handler replies "الخدمة غير متاحة حالياً" and logs the request as `model_error`. |
 
 ## Database shape
 
