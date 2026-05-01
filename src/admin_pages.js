@@ -169,6 +169,7 @@ export const SHARED_CSS = `
   .label-row label { margin: 0; }
   input[type="text"], input[type="tel"], input[type="search"], input[type="url"],
   input[type="email"], input[type="password"], input[type="number"], input[type="date"],
+  input[type="datetime-local"], input[type="time"],
   select, textarea {
     width: 100%; padding: 10px 14px; font-size: 14px;
     border: 1px solid #d1d1d6; border-radius: 8px; margin-bottom: 14px;
@@ -896,18 +897,21 @@ export function renderPublishPage() {
   <div class="label-row" style="margin-top:8px">
     <label>توقيت الإرسال</label>
   </div>
-  <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center; margin-bottom:14px">
-    <label style="display:flex; align-items:center; gap:6px; font-weight:normal">
+  <div style="display:flex; gap:18px; flex-wrap:wrap; align-items:center; margin-bottom:12px">
+    <label style="display:flex; align-items:center; gap:6px; font-weight:normal; margin:0">
       <input type="radio" name="sendMode" value="now" checked onchange="onSendModeChange()"> إرسال الآن
     </label>
-    <label style="display:flex; align-items:center; gap:6px; font-weight:normal">
+    <label style="display:flex; align-items:center; gap:6px; font-weight:normal; margin:0">
       <input type="radio" name="sendMode" value="schedule" onchange="onSendModeChange()"> جدولة
     </label>
-    <div id="scheduledAtWrap" style="display:none; flex:1; min-width:200px">
-      <input type="datetime-local" id="scheduledAt" dir="ltr">
-      <div class="muted" style="font-size:12px; margin-top:-10px">
-        وقت الكويت — الإرسال يبدأ فعلياً خلال 5 دقائق من الوقت المحدد.
-      </div>
+  </div>
+
+  <!-- Schedule date/time picker — own row so it has room to breathe -->
+  <div id="scheduledAtWrap" style="display:none; margin-bottom:14px">
+    <label>وقت الإرسال (وقت الكويت)</label>
+    <input type="datetime-local" id="scheduledAt" dir="ltr" style="max-width:280px; margin-bottom:6px">
+    <div class="muted" style="font-size:12px">
+      الإرسال يبدأ فعلياً خلال 5 دقائق من الوقت المحدد.
     </div>
   </div>
 
