@@ -35,7 +35,18 @@ WHATSAPP_GIFT_WELCOME_TEMPLATE_NAME = "aljarida_gift_welcome_ar"
 
 # xAI / Grok model for fact-check requests. XAI_API_KEY must be set as a
 # wrangler secret (`wrangler secret put XAI_API_KEY`).
-GROK_MODEL = "grok-2-vision-1212"
+#
+# Available models for our account (as of 2026-05-01) per /admin/api/grok-models:
+#   grok-3, grok-3-mini
+#   grok-4-0709
+#   grok-4-fast-non-reasoning, grok-4-fast-reasoning   ← fast + cheap, multimodal
+#   grok-4-1-fast-non-reasoning, grok-4-1-fast-reasoning
+#   grok-4.20-* (newer)
+#   grok-4.3                                            ← premium flagship
+#
+# `grok-4-fast-reasoning` is the cost/quality sweet spot for fact-checking.
+# Bump to `grok-4.3` if accuracy is the bottleneck.
+GROK_MODEL = "grok-4-fast-reasoning"
 
 # Cron triggers:
 #   "0 7 * * *"   — Daily at 10 AM Kuwait (7 AM UTC). Renewal reminders,
