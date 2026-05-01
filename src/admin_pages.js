@@ -506,12 +506,6 @@ export function renderDashboardPage() {
   <div class="stat-card plan-card"><div class="stat-label">مجاني (هدية)</div><div class="stat-value" id="stat-plan-gift">—</div></div>
 </div>
 
-<!-- Activity feed -->
-<h2 style="margin-top:28px; margin-bottom:12px">النشاط الأخير</h2>
-<div class="card" id="activityCard">
-  <div id="activityList"><div class="empty-state" style="padding:24px">جارٍ التحميل…</div></div>
-</div>
-
 <!-- Quick links footer -->
 <div class="quick-links">
   <a href="/admin/publish" class="quick-link" data-roles="supervisor,publisher">📰 إرسال العدد</a>
@@ -846,9 +840,7 @@ async function loadActivity() {
 }
 
 loadDashboard();
-loadActivity();
 setInterval(loadDashboard, 30000);
-setInterval(loadActivity, 30000);
 </script>
   `;
   return pageShell('الرئيسية', 'dashboard', body);
