@@ -138,6 +138,14 @@ async function dispatch(request, env, ctx, url, admin) {
     return handleApiStats(env);
   }
 
+  // Diagnostic: list xAI models accessible to the worker's stored key.
+  // Supervisor-only since the response can leak which models we have.
+  if (path === '/admin/api/grok-models' && method === 'GET') {
+    const denied = requireRole(admin, [ROLE_SUPERVISOR]);
+    if (denied) return denied;
+    return handleApiGrokModels(env);
+  }
+
   // Rich dashboard payload — KPIs + alerts + funnel + 30-day daily series
   if (path === '/admin/api/dashboard' && method === 'GET') {
     return handleApiDashboard(env);
@@ -1241,6 +1249,32 @@ async function handleApiBroadcastDetail(env, id, request) {
       total_pages: Math.ceil((stats?.total || 0) / perPage),
     },
   });
+}
+
+// ----------------------------------------------------------------------------
+// Diagnostic: Grok models list
+// ----------------------------------------------------------------------------
+
+async function handleApiGrokModels(env) {
+  if (!env.XAI_API_KEY) {
+    return jsonResponse({ error: 'XAI_API_KEY secret not set' }, 503);
+  }
+  try {
+    const r = await fetch('https://api.x.ai/v1/models', {
+      headers: { 'Authorization': `Bearer ${env.XAI_API_KEY}` },
+    });
+    const text = await r.text();
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch {}
+    return jsonResponse({
+      status: r.status,
+      ok: r.ok,
+      body: parsed || text,
+      configured_model: env.GROK_MODEL || null,
+    }, r.ok ? 200 : 502);
+  } catch (err) {
+    return jsonResponse({ error: err.message }, 500);
+  }
 }
 
 // ----------------------------------------------------------------------------
