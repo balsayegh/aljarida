@@ -23,7 +23,13 @@ const MAX_RESPONSE_TEXT = 4000;   // truncate what we store in DB
 const MAX_OUTPUT_TOKENS = 600;
 const GROK_TIMEOUT_MS   = 30_000;
 
-const TRIGGER_RE = /^\s*تحقق\b[:\s]?\s*/u;
+// JavaScript's \b word boundary only recognizes ASCII word characters, so
+// /^\s*تحقق\b/ never matches Arabic input. Use a Unicode-aware negative
+// lookahead instead — keyword must be followed by end-of-string or any
+// non-letter character (whitespace, : ، . etc.). This correctly rejects
+// Arabic words that happen to start with "تحقق" (e.g. "تحققان").
+const TRIGGER_KEYWORD = 'تحقق';
+const SEPARATOR_RE    = /^[\s:،,.\-]+/u;
 
 const SYSTEM_PROMPT = `أنت مساعد ذكي للتحقق من الأخبار. سيُعرض عليك خبر نصي أو صورة، وعليك تقييم مدى دقّته/صحته بناءً على معرفتك العامة.
 
@@ -65,26 +71,43 @@ const DISCLAIMER = '\n\n⚠️ النتيجة استرشادية وقد تكون
 export function parseFactCheckTrigger(message) {
   if (!message) return null;
 
+  let raw = '';
+  let isImage = false;
+  let mediaId = null;
+
   if (message.type === 'text') {
-    const body = message.text?.body || '';
-    if (!TRIGGER_RE.test(body)) return null;
-    const stripped = body.replace(TRIGGER_RE, '').trim();
-    if (!stripped) return null;
-    return { type: 'text', text: stripped.slice(0, MAX_PROMPT_TEXT) };
+    raw = message.text?.body || '';
+  } else if (message.type === 'image') {
+    raw = message.image?.caption || '';
+    mediaId = message.image?.id;
+    isImage = true;
+  } else {
+    return null;
   }
 
-  if (message.type === 'image') {
-    const caption = (message.image?.caption || '').trim();
-    if (!TRIGGER_RE.test(caption)) return null;
-    const stripped = caption.replace(TRIGGER_RE, '').trim();
+  // Trim any leading whitespace (incl. RTL marks Meta sometimes injects)
+  const body = raw.replace(/^[\s‎‏‪-‮]+/, '');
+
+  if (!body.startsWith(TRIGGER_KEYWORD)) return null;
+
+  // What's right after the keyword — end-of-string or non-letter is required
+  // to avoid matching longer Arabic words that begin with "تحقق".
+  const after = body.slice(TRIGGER_KEYWORD.length);
+  if (after.length > 0 && /^\p{L}/u.test(after)) return null;
+
+  // Strip leading separators (colon, comma, dash, whitespace, Arabic comma)
+  const content = after.replace(SEPARATOR_RE, '').trim();
+
+  if (isImage) {
     return {
       type: 'image',
-      mediaId: message.image?.id,
-      caption: stripped.slice(0, MAX_PROMPT_TEXT) || 'تحقق من هذه الصورة',
+      mediaId,
+      caption: content.slice(0, MAX_PROMPT_TEXT) || 'تحقق من هذه الصورة',
     };
   }
 
-  return null;
+  if (!content) return null;  // text mode requires actual content after the keyword
+  return { type: 'text', text: content.slice(0, MAX_PROMPT_TEXT) };
 }
 
 // ----------------------------------------------------------------------------
