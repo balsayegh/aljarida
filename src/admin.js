@@ -640,6 +640,7 @@ async function handleApiStats(env) {
       failed_count: lastBroadcast.failed_count,
       target_count: lastBroadcast.target_count,
       started_at: lastBroadcast.started_at,
+      pdf_url: lastBroadcast.pdf_url,
     } : null,
     payments: {
       month_total_kwd: monthPaid?.total_kwd || 0,
@@ -698,7 +699,11 @@ async function handleApiDashboard(env) {
          COUNT(*)                                                       AS total
        FROM subscribers`
     ).bind(now - DAY_MS).first(),
-    env.DB.prepare(`SELECT * FROM broadcasts ORDER BY started_at DESC LIMIT 1`).first(),
+    env.DB.prepare(
+      `SELECT id, date_string, pdf_url, target_count, sent_count, failed_count, status, started_at
+       FROM broadcasts WHERE status IN ('completed','in_progress','stalled')
+       ORDER BY started_at DESC LIMIT 1`
+    ).first(),
 
     // Revenue this month (treat NULL state as paid for legacy/manual rows)
     env.DB.prepare(
@@ -794,6 +799,7 @@ async function handleApiDashboard(env) {
         target_count: lastBroadcast.target_count,
         started_at: lastBroadcast.started_at,
         status: lastBroadcast.status,
+        pdf_url: lastBroadcast.pdf_url,
       } : null,
       last_payment: lastPayment ? {
         phone: lastPayment.phone,
