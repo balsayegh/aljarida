@@ -446,9 +446,14 @@ export function renderDashboardPage() {
     <div class="hero-sub muted" id="hero-revenue-delta">—</div>
   </a>
   <a href="#" class="hero-card hero-link kpi-broadcast" id="hero-broadcast">
-    <div class="hero-label">آخر إرسال</div>
-    <div class="hero-value" id="hero-broadcast-date">—</div>
-    <div class="hero-sub muted" id="hero-broadcast-rate">—</div>
+    <div class="hero-broadcast-body">
+      <div class="hero-broadcast-text">
+        <div class="hero-label">آخر إرسال</div>
+        <div class="hero-value" id="hero-broadcast-date">—</div>
+        <div class="hero-sub muted" id="hero-broadcast-rate">—</div>
+      </div>
+      <img id="hero-broadcast-thumb" alt="" loading="lazy" style="display:none">
+    </div>
   </a>
 </div>
 
@@ -759,10 +764,20 @@ async function loadDashboard() {
       document.getElementById('hero-broadcast-date').textContent = b.date_string || '—';
       document.getElementById('hero-broadcast-rate').textContent = 'معدل التسليم: ' + rate + '% (' + b.sent_count + '/' + b.target_count + ')';
       document.getElementById('hero-broadcast').setAttribute('href', '/admin/broadcasts/' + b.id);
+      // Thumbnail: aljarida.com hosts a same-name JPG next to each PDF.
+      const thumb = document.getElementById('hero-broadcast-thumb');
+      if (b.pdf_url) {
+        thumb.onerror = function() { this.style.display = 'none'; };
+        thumb.src = b.pdf_url.replace(/\\.pdf$/i, '.jpg');
+        thumb.style.display = 'block';
+      } else {
+        thumb.style.display = 'none';
+      }
     } else {
       document.getElementById('hero-broadcast-date').textContent = '—';
       document.getElementById('hero-broadcast-rate').textContent = 'لا توجد بثوث بعد';
       document.getElementById('hero-broadcast').setAttribute('href', '/admin/broadcasts');
+      document.getElementById('hero-broadcast-thumb').style.display = 'none';
     }
 
     // Alerts
