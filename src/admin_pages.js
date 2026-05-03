@@ -562,6 +562,7 @@ export function renderDashboardPage() {
   background: rgba(255,255,255,0.12);
   border: 1px solid rgba(255,255,255,0.25);
   margin-top: 4px;
+  align-self: center;          /* horizontally center inside the flex column */
 }
 
 /* Subscription status section — uniform brand blue + white text */
