@@ -97,6 +97,12 @@ export const SHARED_CSS = `
     color: var(--brand-blue); border-inline-start-color: var(--brand-blue);
     background: #f0f7ff; font-weight: 500;
   }
+  .sidenav-links a i {
+    width: 18px; margin-inline-end: 10px;
+    text-align: center; color: #999;
+  }
+  .sidenav-links a:hover i,
+  .sidenav-links a.active i { color: var(--brand-blue); }
   .sidenav-footer {
     padding: 14px 22px; border-top: 1px solid #e5e5e7;
     display: flex; flex-direction: column; gap: 8px;
@@ -314,6 +320,7 @@ export function pageShell(title, activePage, bodyHtml) {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title} — جريدة الجريدة - النسخة الرقمية</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 <style>${SHARED_CSS}</style>
 </head>
 <body>
@@ -325,13 +332,13 @@ export function pageShell(title, activePage, bodyHtml) {
     <span class="brand-sub">النسخة الرقمية</span>
   </div>
   <div class="sidenav-links">
-    <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}">الرئيسية</a>
-    <a href="/admin/publish" class="${activePage === 'publish' ? 'active' : ''}" data-roles="supervisor,publisher">إرسال العدد</a>
-    <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}" data-roles="supervisor,billing">المشتركون</a>
-    <a href="/admin/payments" class="${activePage === 'payments' ? 'active' : ''}" data-roles="supervisor,billing">الدفعات</a>
-    <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}">سجل الإرسال</a>
-    <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}" data-roles="supervisor,publisher">التنبيهات</a>
-    <a href="/admin/admins" class="${activePage === 'admins' ? 'active' : ''}" data-roles="supervisor">المستخدمون</a>
+    <a href="/admin" class="${activePage === 'dashboard' ? 'active' : ''}"><i class="fa-solid fa-house"></i> الرئيسية</a>
+    <a href="/admin/publish" class="${activePage === 'publish' ? 'active' : ''}" data-roles="supervisor,publisher"><i class="fa-solid fa-paper-plane"></i> إرسال العدد</a>
+    <a href="/admin/subscribers" class="${activePage === 'subscribers' ? 'active' : ''}" data-roles="supervisor,billing"><i class="fa-solid fa-users"></i> المشتركون</a>
+    <a href="/admin/payments" class="${activePage === 'payments' ? 'active' : ''}" data-roles="supervisor,billing"><i class="fa-solid fa-wallet"></i> الدفعات</a>
+    <a href="/admin/broadcasts" class="${activePage === 'broadcasts' ? 'active' : ''}"><i class="fa-solid fa-timeline"></i> سجل الإرسال</a>
+    <a href="/admin/failures" class="${activePage === 'failures' ? 'active' : ''}" data-roles="supervisor,publisher"><i class="fa-solid fa-triangle-exclamation"></i> التنبيهات</a>
+    <a href="/admin/admins" class="${activePage === 'admins' ? 'active' : ''}" data-roles="supervisor"><i class="fa-solid fa-user-shield"></i> المستخدمون</a>
   </div>
   <div class="sidenav-footer">
     <span id="navAdminLabel" class="admin-label"></span>
