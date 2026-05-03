@@ -550,6 +550,19 @@ export function renderDashboardPage() {
 .hero-sub { font-size: 13px; margin-top: 6px; color: rgba(255,255,255,0.7); }
 .hero-card .muted { color: rgba(255,255,255,0.65); }
 
+/* Last-broadcast hero card: text on the right (RTL natural), thumbnail on the left */
+.hero-broadcast-body {
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.hero-broadcast-text { flex: 1; min-width: 0; }
+#hero-broadcast-thumb {
+  width: 64px; max-height: 96px;
+  object-fit: cover; object-position: top;
+  border-radius: 4px; flex-shrink: 0;
+  background: rgba(255,255,255,0.12);
+  border: 1px solid rgba(255,255,255,0.25);
+}
+
 /* Subscription status section — uniform brand blue + white text */
 .stat-card.status-card { background: var(--brand-blue); }
 a.stat-card.status-card:hover { filter: brightness(1.07); }
