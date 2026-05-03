@@ -1061,21 +1061,8 @@ async function loadLastBroadcast() {
     const d = await r.json();
     if (d.lastBroadcast) {
       const b = d.lastBroadcast;
-      // aljarida.com hosts a same-name JPG next to each PDF — swap the
-      // extension to get a first-page thumbnail. onerror hides it
-      // gracefully if the JPG ever 404s for some edition.
-      const thumbUrl = b.pdf_url ? b.pdf_url.replace(/\\.pdf$/i, '.jpg') : null;
-      const thumbHtml = thumbUrl
-        ? '<a href="' + escapeHtml(b.pdf_url) + '" target="_blank" rel="noopener" style="display:inline-block">' +
-            '<img src="' + escapeHtml(thumbUrl) + '" alt="" loading="lazy" ' +
-              'style="max-width:220px; width:100%; border:1px solid #e5e5e7; border-radius:6px; ' +
-                     'box-shadow:0 1px 3px rgba(0,0,0,0.06); margin-bottom:14px; cursor:pointer" ' +
-              "onerror=\"this.parentNode.style.display='none'\">" +
-          '</a>'
-        : '';
       document.getElementById('lastBroadcastCard').style.display = 'block';
       document.getElementById('lastBroadcastContent').innerHTML =
-        thumbHtml +
         '<p><strong>' + escapeHtml(b.date_string) + '</strong></p>' +
         '<p class="muted">أُرسل إلى ' + b.target_count + ' — نجح: ' + b.sent_count + '، فشل: ' + b.failed_count + '</p>' +
         '<p><a href="/admin/broadcasts/' + b.id + '">عرض التفاصيل →</a></p>';
