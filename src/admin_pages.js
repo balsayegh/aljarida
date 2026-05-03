@@ -538,11 +538,11 @@ export function renderDashboardPage() {
 .hero-sub { font-size: 13px; margin-top: 6px; color: rgba(255,255,255,0.7); }
 .hero-card .muted { color: rgba(255,255,255,0.65); }
 
-/* Subscription status section — uniform brand cream + navy text */
-.stat-card.status-card { background: var(--brand-cream); }
-a.stat-card.status-card:hover { filter: brightness(0.97); }
-.stat-card.status-card .stat-label { color: var(--brand-navy); opacity: 0.75; }
-.stat-card.status-card .stat-value { color: var(--brand-navy); }
+/* Subscription status section — uniform brand blue + white text */
+.stat-card.status-card { background: var(--brand-blue); }
+a.stat-card.status-card:hover { filter: brightness(1.07); }
+.stat-card.status-card .stat-label { color: rgba(255,255,255,0.78); }
+.stat-card.status-card .stat-value { color: white; }
 
 /* Plan breakdown — uniform brand magenta background with white text */
 .stat-card.plan-card { background: var(--brand-magenta); }
