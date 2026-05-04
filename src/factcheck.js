@@ -31,9 +31,16 @@ const GROK_TIMEOUT_MS   = 30_000;
 const TRIGGER_KEYWORD = 'تحقق';
 const SEPARATOR_RE    = /^[\s:،,.\-]+/u;
 
-const SYSTEM_PROMPT = `أنت مساعد ذكي للتحقق من الأخبار. سيُعرض عليك خبر نصي أو صورة، وعليك تقييم مدى دقّته/صحته بناءً على معرفتك العامة.
+const SYSTEM_PROMPT = `أنت مساعد ذكي للتحقق من الأخبار، ولديك إمكانية البحث الحي على الإنترنت.
 
-أعد إجابتك بالشكل التالي بالضبط:
+تعليمات صارمة:
+1. **ابحث في الإنترنت قبل الإجابة.** لا تعتمد على ذاكرتك التدريبية فقط — قد تكون قديمة.
+2. اعتمد على المصادر الأولية والموثوقة: المواقع الرسمية، وكالات الأنباء الكبرى (Reuters, AP, AFP, BBC, الجزيرة، CNN العربية)، والصحف الموثوقة.
+3. إذا لم تعثر في البحث على مصادر موثوقة تثبت أو تنفي الادعاء، اختر ⚪ "لا يمكن التحقق". لا تخمّن.
+4. لا تحكم بـ 🔴 "غير صحيح" إلا إذا وجدت أدلة واضحة من مصادر موثوقة تنفي الادعاء.
+5. **لا تذكر المصادر في إجابتك** — سيتم إرفاقها تلقائياً من نتائج البحث.
+
+أعد إجابتك بهذا الشكل بالضبط:
 
 [الحكم]: 🟢 صحيح
 أو
@@ -43,15 +50,12 @@ const SYSTEM_PROMPT = `أنت مساعد ذكي للتحقق من الأخبار
 أو
 [الحكم]: ⚪ لا يمكن التحقق
 
-[الشرح]: فقرة قصيرة من 2-4 جمل توضح سبب الحكم.
+[الشرح]: فقرة من 2-4 جمل توضح سبب الحكم بناءً على ما وجدته في البحث.
 
-[المصادر]: (اختياري) إذا كان لديك معرفة بمصادر موثوقة، اذكرها بإيجاز.
-
-ملاحظات مهمة:
-- إذا لم تكن متأكداً، اختر "🟡 يحتاج مراجعة" أو "⚪ لا يمكن التحقق" بدلاً من التخمين.
-- اكتب الإجابة بالعربية الفصحى المبسّطة.
-- لا تتجاوز 200 كلمة في الشرح.
-- لا تحاول التحقق من معلومات شخصية أو خاصة.`;
+ملاحظات:
+- اكتب بالعربية الفصحى المبسّطة.
+- لا تتجاوز 200 كلمة.
+- لا تتحقق من معلومات شخصية أو خاصة.`;
 
 const DISCLAIMER = '\n\n⚠️ النتيجة استرشادية وقد تكون غير دقيقة. يبقى التحقق النهائي على عاتق القارئ.';
 
@@ -160,9 +164,9 @@ export async function handleFactCheckRequest(env, phone, subscriber, trigger) {
     userContent = trigger.text;
   }
 
-  let grokText;
+  let grokResult;
   try {
-    grokText = await callGrok(env, userContent);
+    grokResult = await callGrok(env, userContent);
   } catch (err) {
     const m = err.message || String(err);
     console.error('[factcheck] Grok call failed:', m);
@@ -171,9 +175,20 @@ export async function handleFactCheckRequest(env, phone, subscriber, trigger) {
     return;
   }
 
+  const grokText = grokResult.content;
+  const citations = grokResult.citations || [];
   const verdict = extractVerdict(grokText);
-  const trimmedResponse = grokText.length > MAX_RESPONSE_TEXT ? grokText.slice(0, MAX_RESPONSE_TEXT) : grokText;
-  const reply = `${grokText.trim()}${DISCLAIMER}`;
+
+  // Format citations as a numbered list — cap at 5 to keep the WhatsApp
+  // message readable. Empty citations array → no sources block.
+  const citationsBlock = citations.length > 0
+    ? '\n\n📌 المصادر:\n' + citations.slice(0, 5).map((u, i) => `${i + 1}. ${u}`).join('\n')
+    : '';
+
+  // Persist both verdict text and citations together so audit lookups can
+  // see exactly what Grok cited. JSON keeps it grep-friendly.
+  const persistedBody = JSON.stringify({ text: grokText, citations }).slice(0, MAX_RESPONSE_TEXT);
+  const reply = `${grokText.trim()}${citationsBlock}${DISCLAIMER}`;
 
   let wamid = null;
   try {
@@ -182,11 +197,11 @@ export async function handleFactCheckRequest(env, phone, subscriber, trigger) {
   } catch (err) {
     const m = err.message || String(err);
     console.error('[factcheck] reply send failed:', m);
-    await persist(env, phone, trigger, verdict, trimmedResponse, 'send_failed', null, m, t0);
+    await persist(env, phone, trigger, verdict, persistedBody, 'send_failed', null, m, t0);
     return;
   }
 
-  await persist(env, phone, trigger, verdict, trimmedResponse, 'replied', wamid, null, t0);
+  await persist(env, phone, trigger, verdict, persistedBody, 'replied', wamid, null, t0);
 }
 
 // ----------------------------------------------------------------------------
@@ -250,9 +265,16 @@ async function callGrok(env, userContent) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: env.GROK_MODEL || 'grok-2-vision-1212',
+        model: env.GROK_MODEL || 'grok-4-fast-reasoning',
         max_tokens: MAX_OUTPUT_TOKENS,
         temperature: 0.2,
+        // xAI Live Search — without this, Grok answers from training data
+        // and confabulates. Mode 'on' forces a web query before responding.
+        search_parameters: {
+          mode: 'on',
+          return_citations: true,
+          max_search_results: 8,
+        },
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user',   content: userContent },
@@ -267,7 +289,10 @@ async function callGrok(env, userContent) {
     const data = await resp.json();
     const content = data?.choices?.[0]?.message?.content;
     if (!content) throw new Error('xAI response missing message.content');
-    return content;
+    // xAI returns citations at the top level of the response. Belt-and-suspenders
+    // also check inside message in case the format changes.
+    const citations = data.citations || data?.choices?.[0]?.message?.citations || [];
+    return { content, citations: Array.isArray(citations) ? citations : [] };
   } finally {
     clearTimeout(timer);
   }
